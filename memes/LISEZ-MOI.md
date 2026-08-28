@@ -24,7 +24,7 @@ Ils changent quand on bascule de l'un à l'autre.
 | `mode-provincial.gif` | Provincial — dix questions, indulgent |
 | `mode-parisien.gif` | Parisien — vingt questions, sans pitié |
 
-Le cadre y fait 274 × 104 pixels : un format large convient mieux qu'un carré.
+Le cadre y fait 342 × 130 pixels : un format large convient mieux qu'un carré.
 
 ## En général
 
