@@ -370,7 +370,6 @@ function scan(t) {
     if (visible.has(tr.line)) active.push(tr);
   }
   lastScan = t;
-  refreshPanel();
 }
 
 function draw(t) {
@@ -420,124 +419,28 @@ function frame(ts) {
 }
 
 
-/* ---------- fiche de ligne ---------- */
+/* ---------- lignes ---------- */
 
-const panel = document.getElementById("panel");
-
-const fmtKm = m => (m / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 }) + " km";
-const fmtMin = s => Math.round(s / 60) + " min";
-const fmtGap = s => {
-  const m = Math.floor(s / 60), r = Math.round(s % 60);
-  return m ? `${m} min${r ? " " + r + " s" : ""}` : `${r} s`;
-};
-const fmtHour = s =>
-  `${String(Math.floor(s / 3600) % 24).padStart(2, "0")}:${String(Math.floor(s / 60) % 60).padStart(2, "0")}`;
-
-/* Caractéristiques d'une ligne, déduites de son parcours le plus complet. */
-function lineStats(i) {
-  if (stats[i]) return stats[i];
-
-  const pats = [];
-  net.patterns.forEach((p, k) => { if (p[0] === i) pats.push(k); });
-  let main = pats[0];
-  for (const k of pats) {
-    if (net.patterns[k][3].length > net.patterns[main][3].length) main = k;
+/* Les deux terminus d'une ligne, retenus une fois pour toutes. */
+const bouts = [];
+function lineEnds(i) {
+  if (bouts[i]) return bouts[i];
+  let main = null;
+  for (const p of net.patterns) {
+    if (p[0] === i && (!main || p[3].length > main[3].length)) main = p;
   }
-  const mp = net.patterns[main];
-  const stops = mp[3], dist = mp[4];
-
-  const served = new Set();
-  for (const k of pats) for (const st of net.patterns[k][3]) served.add(st);
-
-  // durée bout en bout : valeur médiane des courses qui suivent ce parcours
-  const runs = fleet.filter(t => t.pat === main).map(t => t.prof[t.prof.length - 2]);
-  runs.sort((a, b) => a - b);
-  const ride = runs.length ? runs[runs.length >> 1] : 0;
-
-  const daily = fleet.filter(t => t.line === i && t.today);
-  const starts = daily.map(t => t.t0);
-  const length = dist[dist.length - 1] - dist[0];
-
-  return (stats[i] = {
+  const stops = main[3];
+  return (bouts[i] = {
     from: net.stations[stops[0]][0],
     to: net.stations[stops[stops.length - 1]][0],
-    stations: served.size,
-    length,
-    ride,
-    speed: ride ? length / 1000 / (ride / 3600) : 0,
-    runs: daily.length,
-    first: starts.length ? Math.min(...starts) : null,
-    last: starts.length ? Math.max(...starts) : null,
-    box: extent(i),
   });
 }
 
-/* Écart médian entre deux départs consécutifs, dans un sens, autour de l'instant t. */
-function headway(i, t) {
-  const win = 2700;
-  const times = [];
-  for (const tr of fleet) {
-    if (tr.line === i && net.patterns[tr.pat][2] === 0 &&
-        tr.t0 > t - win && tr.t0 < t + win) times.push(tr.t0);
-  }
-  if (times.length < 3) return null;
-  times.sort((a, b) => a - b);
-  const gaps = [];
-  for (let k = 1; k < times.length; k++) gaps.push(times[k] - times[k - 1]);
-  gaps.sort((a, b) => a - b);
-  return gaps[gaps.length >> 1];
-}
-
-function showPanel(i) {
-  const l = net.lines[i], st = lineStats(i);
-  panel.innerHTML = `
-    <div class="head">
-      <span class="badge" style="background:${l[1]};color:${l[2]}">${l[0]}</span>
-      <b>Ligne ${l[0]}</b>
-      <button class="close" title="Voir tout le réseau">&times;</button>
-    </div>
-    <p class="ends"><span>${st.from}</span> ↔ <span>${st.to}</span></p>
-    <dl>
-      <dt>stations</dt><dd>${st.stations}</dd>
-      <dt>longueur</dt><dd>${fmtKm(st.length)}</dd>
-      <dt>bout en bout</dt><dd>${fmtMin(st.ride)}</dd>
-      <dt>vitesse moyenne</dt><dd>${Math.round(st.speed)} km/h</dd>
-      <div class="sep"></div>
-      <div class="live" style="display:contents">
-        <dt>en circulation</dt><dd data-live="trains">—</dd>
-        <dt>un départ toutes les</dt><dd data-live="gap">—</dd>
-      </div>
-      <div class="sep"></div>
-      <dt>service</dt><dd>${st.first !== null ? fmtHour(st.first) + " – " + fmtHour(st.last) : "—"}</dd>
-      <dt>courses du jour</dt><dd>${st.runs}</dd>
-    </dl>`;
-  panel.querySelector(".close").onclick = () => select(null);
-  panel.hidden = false;
-  refreshPanel();
-}
-
-function refreshPanel() {
-  if (selected === null || panel.hidden) return;
-  const n = active.length;
-  const gap = headway(selected, simTime);
-  panel.querySelector('[data-live="trains"]').textContent =
-    n ? `${n} rame${n > 1 ? "s" : ""}` : "aucune";
-  panel.querySelector('[data-live="gap"]').textContent = gap ? fmtGap(gap) : "—";
-}
-
-/* Isole une ligne, ou revient au réseau entier.
-   `quiet` cadre la ligne sans ouvrir sa fiche — ce dont le jeu a besoin. */
-function select(i, quiet) {
+/* Isole une ligne, ou revient au réseau entier. */
+function select(i) {
   selected = i;
   visible = new Set(i === null ? net.lines.map((_, k) => k) : [i]);
-  if (i === null) {
-    panel.hidden = true;
-    flyTo(frameTo(bounds));
-  } else {
-    if (!quiet) showPanel(i);
-    const gap = quiet ? 0 : (innerWidth > 640 ? 290 : 0);   // place laissée à la fiche
-    flyTo(frameTo(lineStats(i).box, quiet ? 0.78 : 0.82, gap, fitScale * 7));
-  }
+  flyTo(i === null ? frameTo(bounds) : frameTo(extent(i), 0.78, 0, fitScale * 7));
   bgDirty = true;
   scan(simTime);
 }
@@ -681,8 +584,9 @@ function hover(px, py) {
   lastMouse = [px, py];
   const st = stationAt(px, py);
   if (st >= 0) {                           // le nom de la station passe avant sa ligne
-    const s = net.stations[st];
-    tip.innerHTML = `<b>${s[0]}</b> <span>${s[3].map(k => net.lines[k][0]).join(" · ")}</span>`;
+    // le nom seul : les numéros de lignes allongeaient l'étiquette au point de recouvrir
+    // la carte autour du curseur
+    tip.innerHTML = `<b>${net.stations[st][0]}</b>`;
     tip.style.left = px + "px";
     tip.style.top = py + "px";
     tip.hidden = false;
@@ -690,8 +594,8 @@ function hover(px, py) {
   }
   if (hovered >= 0) {
     const l = net.lines[hovered];
-    tip.innerHTML = `<b>Ligne ${l[0]}</b> <span>${lineStats(hovered).from} ↔ ${
-      lineStats(hovered).to}</span>`;
+    const ends = lineEnds(hovered);
+    tip.innerHTML = `<b>Ligne ${l[0]}</b> <span>${ends.from} ↔ ${ends.to}</span>`;
     tip.style.left = px + "px";
     tip.style.top = py + "px";
     tip.hidden = false;

@@ -668,11 +668,11 @@ function nextQuestion() {
     const keep = Game.line !== null && kind !== "wards" && NEEDS_LINE.has(Game.lastKind);
     if (!keep) {
       Game.line = pickLine(Game.step, kind);
-      select(Game.line, true);
+      select(Game.line);
     }
   } else if (selected !== null) {                  // on se fie à l'état de la carte
     Game.line = null;
-    select(null, true);
+    select(null);
   } else if (helped) {                             // le coup de pouce avait rapproché la vue
     helped = false;
     flyTo(frameTo(bounds));
@@ -1702,7 +1702,7 @@ function stop() {
   reveal = null;
   Game.blind = false;
   hideInputs();
-  if (Game.line !== null) { Game.line = null; select(null, true); }
+  if (Game.line !== null) { Game.line = null; select(null); }
   document.body.classList.remove("playing");
   hud.hidden = true;
   bgDirty = true;
