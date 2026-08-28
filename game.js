@@ -10,8 +10,9 @@ const ROUNDS = 12;
    la ligne s'allume, puis un cercle se resserre autour de la cible. Chaque palier coûte
    une part du score : attendre l'aide reste un choix, pas une aubaine. */
 const HINTS = [
-  { at: 0.40, keep: 0.85 },      // les lignes de la station passent en couleur pleine
-  { at: 0.70, keep: 0.70 },      // un cercle apparaît et se referme
+  { at: 0.35, keep: 0.85 },      // les lignes de la station passent en couleur pleine
+  { at: 0.58, keep: 0.72 },      // la carte se rapproche d'un quartier, décentré
+  { at: 0.78, keep: 0.60 },      // un cercle apparaît et se referme
 ];
 
 const AIM_PX = 16;               // « pile dessus » sous ce rayon, en pixels
@@ -448,6 +449,19 @@ function apart(a, b) {
   return Math.hypot((p[1] - q[1]) * 1.5, p[2] - q[2]);
 }
 
+/* Carré de `km` kilomètres de côté autour d'une station, dont le centre est décalé au
+   hasard : on se rapproche de la zone sans placer la réponse au milieu de l'écran. */
+function around(i, km) {
+  const st = net.stations[i];
+  const half = km * 1000 / M_PER_WORLD / 2;
+  const jx = (Math.random() - 0.5) * half;
+  const jy = (Math.random() - 0.5) * half;
+  return {
+    minX: st[4][0] + jx - half, maxX: st[4][0] + jx + half,
+    minY: st[4][1] + jy - half, maxY: st[4][1] + jy + half,
+  };
+}
+
 /* Emprise d'un ensemble d'anneaux. */
 function ringsBounds(rings) {
   let minX = 1, minY = 1, maxX = 0, maxY = 0;
@@ -572,6 +586,9 @@ function nextQuestion() {
   } else if (selected !== null) {                  // on se fie à l'état de la carte
     Game.line = null;
     select(null, true);
+  } else if (helped) {                             // le coup de pouce avait rapproché la vue
+    helped = false;
+    flyTo(frameTo(bounds));
   }
   Game.lastKind = kind;
 
@@ -822,7 +839,7 @@ function nextQuestion() {
   } else {
     const i = pickStation(Game.step);
     asked.add(i);
-    Game.question = { kind: "station", target: i };
+    Game.question = { kind: "station", target: i, zone: around(i, 7) };
     ask(`<b>${net.stations[i][0]}</b>`);
   }
   started = performance.now();
@@ -882,6 +899,7 @@ function success(h) {
 }
 
 let shown = 0, rolling = null;
+let helped = false;              // la vue a-t-elle été déplacée par un coup de pouce ?
 let touched = false;
 addEventListener("pointerdown", () => { touched = true; }, { once: true });
 
@@ -1189,9 +1207,14 @@ Game.draw = ctx => {
     spotlight = [...lines];
     bgDirty = true;
   }
-  if (help > 1) {
-    const u = Math.min(1, (elapsed(q) - HINTS[1].at) / (1 - HINTS[1].at));
-    const r = (1900 - 1200 * u) / mpp();           // de 1,9 km à 700 m
+  if (help > 1 && !q.zoomed) {                     // deuxième palier : on se rapproche
+    q.zoomed = true;
+    helped = true;
+    flyTo(frameTo(q.zone, 0.92, 0, fitScale * 5), 900);
+  }
+  if (help > 2) {
+    const u = Math.min(1, (elapsed(q) - HINTS[2].at) / (1 - HINTS[2].at));
+    const r = (1500 - 900 * u) / mpp();            // de 1,5 km à 600 m
     const st = net.stations[q.target];
     ctx.save();
     ctx.setLineDash([6, 6]);
@@ -1302,11 +1325,12 @@ Game.draw = ctx => {
       dot(ctx, q.target, "#1a7f37", true);
     }
   } else if (q.kind === "next") {
-    // le point de départ est montré sans son nom : on voit d'où l'on part, reste à
-    // reconnaître celle d'après — et du bon côté. Les noms viennent à la correction,
-    // annoncés de part et d'autre pour ne pas se chevaucher.
+    // le point de départ est nommé sur la carte : la réponse se donnant parmi trois
+    // propositions, le situer n'apprend rien de plus qu'on ne sache déjà.
+    // Attention au côté de l'étiquette : tant que la question est ouverte, la placer
+    // selon la position de la réponse trahirait le sens de marche.
     const west = net.stations[q.from][2] < net.stations[q.target][2];
-    dot(ctx, q.from, "#8a8a8a", !!reveal, west ? "left" : "right");
+    dot(ctx, q.from, "#8a8a8a", true, reveal && west ? "left" : "right");
     if (reveal) {
       dot(ctx, q.target, reveal.won ? "#1a7f37" : "#b3261e", true, west ? "right" : "left");
     }
