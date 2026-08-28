@@ -14,6 +14,20 @@ capitales passera en surimpression au bas de l'image.
 | `egare.gif` | Banlieusard égaré | 18 % |
 | `touriste.gif` | Touriste | en dessous |
 
+## L'illustration des modes
+
+Deux fichiers supplémentaires habillent l'écran d'accueil, au-dessus du choix du mode.
+Ils changent quand on bascule de l'un à l'autre.
+
+| Fichier | Mode |
+|---|---|
+| `mode-provincial.gif` | Provincial — dix questions, indulgent |
+| `mode-parisien.gif` | Parisien — vingt questions, sans pitié |
+
+Le cadre y fait 274 × 104 pixels : un format large convient mieux qu'un carré.
+
+## En général
+
 Aucun fichier n'est obligatoire : sans lui, la frimousse reste, sans erreur ni message.
 Vous pouvez donc n'en mettre qu'un ou deux.
 

@@ -1172,3 +1172,67 @@ body.explored #album {
   bottom: 0;
   padding-bottom: 8px;
 }
+
+/* ---------- le choix du mode ---------- */
+
+#modes {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 3px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, .06);
+}
+#modes button {
+  flex: 1;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 17px;
+  background: none;
+  color: var(--muted);
+  font: 600 12px/1 inherit;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+#modes button.on {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .12);
+}
+#modes button:hover:not(.on) { color: var(--ink); }
+
+/* replié dans le coin, le choix reste possible mais discret */
+body.explored #modes {
+  margin-bottom: 8px;
+  padding: 2px;
+}
+body.explored #modes button { padding: 5px 10px; font-size: 10.5px; }
+
+/* ---------- l'illustration du mode ---------- */
+
+#vitrine {
+  margin: 0 0 12px;
+  padding: 0;
+  height: 104px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #eceff5, #dfe3ec);
+  display: grid;
+  place-content: center;
+}
+#vitrine.anime { animation: entree .4s cubic-bezier(.2, .8, .3, 1.3); }
+
+#vitrine .tete {
+  font-size: 52px;
+  line-height: 1;
+  animation: sursaut 3s ease-in-out infinite;
+}
+
+#vitrine .gif {
+  width: 100%;
+  height: 104px;
+  object-fit: cover;
+}
+
+/* replié dans le coin, l'illustration s'efface : la place manque */
+body.explored #vitrine { display: none; }

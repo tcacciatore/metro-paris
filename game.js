@@ -2,18 +2,34 @@
    retrouver une station nommée, ou désigner plusieurs stations d'un arrondissement.
    S'appuie sur les données déjà chargées par app.js (réseau, arrondissements). */
 
-/* Une manche pose les quatorze formes, plus six reprises tirées au sort. */
-const ROUNDS = 20;
+/* Longueur de la manche. Elle dépend du mode : dix questions en provincial, vingt en
+   parisien — d'où une variable et non une constante, fixée au choix du mode. */
+let ROUNDS = 20;
+
+/* Deux façons de jouer. Le mode ne change pas les questions, il change tout le reste :
+   le temps accordé, la générosité de la visée, l'arrivée des coups de pouce, et surtout
+   l'endroit où l'on puise dans les classements de difficulté — un provincial reste dans
+   les stations que tout le monde connaît, un parisien va chercher les plus discrètes. */
+const MODES = {
+  provincial: {
+    nom: "Provincial", tete: "🌻", questions: 10, temps: 1.6, visee: 2,
+    aides: [0.22, 0.42, 0.58], depart: 0, pente: 0.55,
+  },
+  parisien: {
+    nom: "Parisien", tete: "🥖", questions: 20, temps: 0.8, visee: 0.65,
+    aides: null, depart: 0.3, pente: 0.7,
+  },
+};
+
+const MODE_CHOISI = "metro-mode";
 /* Tolérance de visée. Elle suit le zoom : viser à 15 pixels près doit valoir la même
    chose que l'on regarde tout le réseau ou un seul quartier. */
 /* Coup de pouce sur « Trouve telle station » : passé ces fractions du temps accordé,
    la ligne s'allume, puis un cercle se resserre autour de la cible. Chaque palier coûte
    une part du score : attendre l'aide reste un choix, pas une aubaine. */
-const HINTS = [
-  { at: 0.35, keep: 0.85 },      // les lignes de la station passent en couleur pleine
-  { at: 0.58, keep: 0.72 },      // la carte se rapproche d'un quartier, décentré
-  { at: 0.78, keep: 0.60 },      // un cercle apparaît et se referme
-];
+/* Part du score conservée après un, deux, puis trois coups de pouce. Les moments où ils
+   arrivent, eux, dépendent du mode. */
+const GARDE = [0.85, 0.72, 0.60];
 
 const AIM_PX = 16;               // « pile dessus » sous ce rayon, en pixels
 const AIM_MIN = 200;             // ...sans jamais descendre sous ce rayon, en mètres
@@ -40,7 +56,8 @@ const FILLERS = ["station", "spot", "which", "odd", "next", "outside", "far",
 
 const NEEDS_LINE = new Set(["spot", "name", "wards", "next", "odd"]);
 
-const BEST_KEY = "metro-chasse-record-20";
+/* un record par mode : les deux ne se comparent pas */
+const bestKey = () => `metro-chasse-record-${Game.mode}`;
 
 /* Titres décernés en fin de manche, du meilleur au plus modeste. */
 const GRADES = [
@@ -108,6 +125,7 @@ const Game = {
   score: 0,
   step: 0,
   history: [],
+  mode: "provincial",
   streak: 0,         // bonnes réponses d'affilée
   line: null,        // ligne sur laquelle porte la question en cours
   lastKind: null,
@@ -331,15 +349,54 @@ addEventListener("metro:ready", () => {
   }).filter(t => t.hits.length > t.need);
 
   playBtn.disabled = false;
-  showRecord();
+  let garde = "provincial";
+  try { garde = localStorage.getItem(MODE_CHOISI) || "provincial"; } catch { /* ignoré */ }
+  setMode(garde);
 });
 
 function showRecord() {
   let best = 0;
-  try { best = +(localStorage.getItem(BEST_KEY) || 0); } catch { /* stockage indisponible */ }
-  recordLine.textContent = best ? `record ${best.toLocaleString("fr-FR")}`
-                                : `${ROUNDS} questions`;
+  try { best = +(localStorage.getItem(bestKey()) || 0); } catch { /* stockage indisponible */ }
+  recordLine.textContent = best
+    ? `record ${best.toLocaleString("fr-FR")} · ${ROUNDS} questions`
+    : `${ROUNDS} questions`;
 }
+
+/* Le mode se choisit avant la partie et se retient d'une visite à l'autre. */
+function setMode(cle) {
+  Game.mode = MODES[cle] ? cle : "provincial";
+  ROUNDS = MODES[Game.mode].questions;
+  document.querySelectorAll("#modes button").forEach(b =>
+    b.classList.toggle("on", b.dataset.mode === Game.mode));
+  try { localStorage.setItem(MODE_CHOISI, Game.mode); } catch { /* ignoré */ }
+  vitrine();
+  showRecord();
+}
+
+/* L'image qui illustre le mode choisi. Comme pour les fins de partie : une frimousse
+   par défaut, remplacée par memes/mode-<mode>.gif s'il existe. */
+const cadre = document.getElementById("vitrine");
+function vitrine() {
+  const m = MODES[Game.mode];
+  cadre.innerHTML = `<span class="tete">${m.tete}</span>`;
+  cadre.classList.remove("anime");
+  void cadre.offsetWidth;
+  cadre.classList.add("anime");
+
+  const gif = new Image();
+  gif.onload = () => {
+    if (Game.mode !== cle) return;                 // le mode a changé entre-temps
+    cadre.innerHTML = "";
+    gif.className = "gif";
+    cadre.appendChild(gif);
+  };
+  const cle = Game.mode;
+  gif.src = `memes/mode-${cle}.gif`;
+}
+
+document.querySelectorAll("#modes button").forEach(b => {
+  b.onclick = () => setMode(b.dataset.mode);
+});
 
 /* Comparaison indulgente : accents, tirets, casse et ponctuation ne comptent pas. */
 const plain = t => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -410,7 +467,8 @@ const pill = i => `<span class="pill" style="background:${net.lines[i][1]};color
    l'avancement dans la manche, dans une fenêtre glissante qui descend le classement. */
 function window_(list, step, width = 0.45) {
   if (!list.length) return [];
-  const p = step / Math.max(1, ROUNDS - 1);
+  const m = MODES[Game.mode];
+  const p = Math.min(1, m.depart + (step / Math.max(1, ROUNDS - 1)) * m.pente);
   const span = Math.max(1, Math.round(list.length * width));
   const from = Math.round((list.length - span) * p);
   return list.slice(from, from + span);
@@ -717,7 +775,7 @@ function nextQuestion() {
       const seconds = (performance.now() - started) / 1000;
       if (opt.right) {
         const points = award(Math.round(700 +
-                             250 * Math.max(0, 1 - seconds / LIMIT.landmark)), true);
+                             250 * Math.max(0, 1 - seconds / limite("landmark"))), true);
         Game.history.push({ kind: "landmark", name: net.stations[bonne][0], points });
         say(`<em>${points} pts</em> · ${net.stations[bonne][0]}`, "near");
       } else {
@@ -748,7 +806,7 @@ function nextQuestion() {
       const seconds = (performance.now() - started) / 1000;
       if (opt.right) {
         const points = award(Math.round(700 +
-                             250 * Math.max(0, 1 - seconds / LIMIT.fake)), true);
+                             250 * Math.max(0, 1 - seconds / limite("fake"))), true);
         Game.history.push({ kind: "fake", name: faux, points });
         say(`<em>${points} pts</em> · ${faux} n'a jamais existé`, "near");
       } else {
@@ -792,7 +850,7 @@ function nextQuestion() {
       const span = d => d.toLocaleString("fr-FR", { maximumFractionDigits: 1 }) + " km";
       if (opt.right) {
         const points = award(Math.round(700 +
-                             250 * Math.max(0, 1 - seconds / LIMIT.far)), true);
+                             250 * Math.max(0, 1 - seconds / limite("far"))), true);
         Game.history.push({ kind: "far", name: span(draw.best.d), points });
         say(`<em>${points} pts</em> · ${span(draw.best.d)} à vol d'oiseau`, "near");
       } else {
@@ -824,7 +882,7 @@ function nextQuestion() {
       const seconds = (performance.now() - started) / 1000;
       if (opt.right) {
         const points = award(Math.round(700 +
-                             250 * Math.max(0, 1 - seconds / LIMIT.outside)), true);
+                             250 * Math.max(0, 1 - seconds / limite("outside"))), true);
         Game.history.push({ kind: "outside", name: net.stations[target][0], points });
         say(`<em>${points} pts</em> · ${net.stations[target][0]} est hors les murs`, "near");
       } else {
@@ -861,7 +919,7 @@ function nextQuestion() {
       const seconds = (performance.now() - started) / 1000;
       if (opt.right) {
         const points = award(Math.round(700 +
-                             250 * Math.max(0, 1 - seconds / LIMIT.which)), true);
+                             250 * Math.max(0, 1 - seconds / limite("which"))), true);
         Game.history.push({ kind: "which", name: net.stations[target][0], points });
         say(`<em>${points} pts</em> · ${net.stations[target][0]} est sur la ligne ${lineName(right)}`, "near");
       } else {
@@ -903,7 +961,7 @@ function nextQuestion() {
       const seconds = (performance.now() - started) / 1000;
       if (opt.right) {
         const points = award(Math.round(700 +
-                             250 * Math.max(0, 1 - seconds / LIMIT.next)), true);
+                             250 * Math.max(0, 1 - seconds / limite("next"))), true);
         Game.history.push({ kind: "next", name: net.stations[target][0], points });
         say(`<em>${points} pts</em> · ${net.stations[target][0]}`, "near");
         reveal = { won: true, until: performance.now() + 2600 };
@@ -939,7 +997,7 @@ function nextQuestion() {
       const seconds = (performance.now() - started) / 1000;
       if (opt.right) {
         const points = award(Math.round(700 +
-                             250 * Math.max(0, 1 - seconds / LIMIT.odd)), true);
+                             250 * Math.max(0, 1 - seconds / limite("odd"))), true);
         Game.history.push({ kind: "odd", name: net.stations[opt.station][0], points });
         say(`<em>${points} pts</em> · ${net.stations[odd][0]} est ailleurs`, "near");
       } else {
@@ -1045,8 +1103,8 @@ function shareText(grade) {
   const grid = Game.history
     .map(h => (v => v > 0.75 ? "🟩" : v > 0.25 ? "🟨" : "🟥")(success(h)))
     .join("");
-  return `La chasse aux stations · ${Game.score} pts\n${grade}\n${grid}\n` +
-         location.href.split(/[?#]/)[0];
+  return `La chasse aux stations · mode ${MODES[Game.mode].nom.toLowerCase()}\n` +
+         `${Game.score} pts · ${grade}\n${grid}\n` + location.href.split(/[?#]/)[0];
 }
 
 /* Confettis aux couleurs du réseau. */
@@ -1160,16 +1218,19 @@ function metersTo(px, py, stationIdx) {
   return Math.hypot(px - sx(st[4][0]), py - sy(st[4][1])) * mpp();
 }
 
-const aimRadius = () => Math.max(AIM_MIN, AIM_PX * mpp());
+const aimRadius = () => MODES[Game.mode].visee * Math.max(AIM_MIN, AIM_PX * mpp());
 
 /* Part du temps déjà consommée sur la question en cours. */
-const elapsed = q => (performance.now() - started) / 1000 / LIMIT[q.kind];
+/* Temps accordé à une question, selon le mode. */
+const limite = kind => LIMIT[kind] * MODES[Game.mode].temps;
+const elapsed = q => (performance.now() - started) / 1000 / limite(q.kind);
 
 /* Nombre de coups de pouce déjà donnés. */
 function hints(q) {
-  if (q.kind !== "station" || reveal) return 0;
+  const aides = MODES[Game.mode].aides;
+  if (!aides || q.kind !== "station" || reveal) return 0;   // le parisien se débrouille
   const u = elapsed(q);
-  return HINTS.filter(h => u >= h.at).length;
+  return aides.filter(seuil => u >= seuil).length;
 }
 const pickRadius = () => Math.max(PICK_MIN, PICK_PX * mpp());
 
@@ -1195,9 +1256,9 @@ Game.click = (px, py) => {
     const off = Math.max(0, d - aimRadius());      // rien à perdre dans la zone de visée
     const seconds = (performance.now() - started) / 1000;
     const helped = hints(q);
-    const keep = helped ? HINTS[helped - 1].keep : 1;
+    const keep = helped ? GARDE[helped - 1] : 1;
     const points = award(Math.round(1000 * Math.exp(-off / 1600) * keep) +
-                   Math.round(250 * Math.max(0, 1 - seconds / LIMIT.station)),
+                   Math.round(250 * Math.max(0, 1 - seconds / limite("station"))),
                    off === 0, px, py);
     Game.history.push({ kind: "station", name: net.stations[q.target][0], d, points });
     const aide = helped ? " · avec un coup de pouce" : "";
@@ -1215,7 +1276,7 @@ Game.click = (px, py) => {
     const off = Math.max(0, d - aimRadius());
     const seconds = (performance.now() - started) / 1000;
     const points = award(Math.round(1000 * Math.exp(-off / 900)) +
-                   Math.round(250 * Math.max(0, 1 - seconds / LIMIT.spot)),
+                   Math.round(250 * Math.max(0, 1 - seconds / limite("spot"))),
                    off === 0, px, py);
     Game.history.push({ kind: "spot", name: net.stations[q.target][0], d, points });
     say(off === 0 ? `<em>${points} pts</em> · dans la zone`
@@ -1231,7 +1292,7 @@ Game.click = (px, py) => {
     const seconds = (performance.now() - started) / 1000;
     if (line >= 0 && q.lines.includes(line)) {
       const points = award(Math.round((q.tries ? 400 : 800) +
-                           250 * Math.max(0, 1 - seconds / LIMIT.hue)), true, px, py);
+                           250 * Math.max(0, 1 - seconds / limite("hue"))), true, px, py);
       Game.history.push({ kind: "hue", name: `ligne ${lineName(line)}`, points });
       say(`<em>${points} pts</em> · c'est bien la ligne ${lineName(line)}`, "near");
       endHue();
@@ -1290,7 +1351,7 @@ Game.click = (px, py) => {
 /* Décompte du temps accordé, et clôture d'office quand il est épuisé. */
 /* Décompte du temps accordé, et clôture d'office quand il est épuisé. */
 function tick(q) {
-  const limit = LIMIT[q.kind];
+  const limit = limite(q.kind);
   const left = limit - (performance.now() - started) / 1000;
   timebar.firstElementChild.style.width = Math.max(0, left / limit * 100) + "%";
   timebar.classList.toggle("urgent", left < 5);
@@ -1412,7 +1473,8 @@ Game.draw = ctx => {
     flyTo(frameTo(q.zone, 0.92, 0, fitScale * 5), 900);
   }
   if (help > 2) {
-    const u = Math.min(1, (elapsed(q) - HINTS[2].at) / (1 - HINTS[2].at));
+    const dernier = MODES[Game.mode].aides[2];
+    const u = Math.min(1, (elapsed(q) - dernier) / (1 - dernier));
     const r = (1500 - 900 * u) / mpp();            // de 1,5 km à 600 m
     const st = net.stations[q.target];
     ctx.save();
@@ -1742,9 +1804,9 @@ function finish() {
   const wanted = zones.reduce((s, h) => s + h.need, 0);
 
   let best = 0;
-  try { best = +(localStorage.getItem(BEST_KEY) || 0); } catch { /* stockage indisponible */ }
+  try { best = +(localStorage.getItem(bestKey()) || 0); } catch { /* stockage indisponible */ }
   const record = Game.score > best;
-  if (record) { try { localStorage.setItem(BEST_KEY, Game.score); } catch { /* ignoré */ } }
+  if (record) { try { localStorage.setItem(bestKey(), Game.score); } catch { /* ignoré */ } }
 
   const rate = done.length
     ? done.reduce((s, h) => s + success(h), 0) / done.length : 0;
