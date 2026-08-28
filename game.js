@@ -293,7 +293,8 @@ addEventListener("metro:ready", () => {
 function showRecord() {
   let best = 0;
   try { best = +(localStorage.getItem(BEST_KEY) || 0); } catch { /* stockage indisponible */ }
-  recordLine.textContent = best ? `record ${best.toLocaleString("fr-FR")}` : "10 questions";
+  recordLine.textContent = best ? `record ${best.toLocaleString("fr-FR")}`
+                                : `${ROUNDS} questions`;
 }
 
 /* Comparaison indulgente : accents, tirets, casse et ponctuation ne comptent pas. */
@@ -629,12 +630,41 @@ function nextQuestion() {
       .map((_, i) => i)
       .sort((a, b) => fame.indexOf(stops[a]) - fame.indexOf(stops[b]));
     const at = graded(spots, Game.step, 0.5) ?? 0;
-    Game.question = {
-      kind: "next", line: Game.line, from: stops[at], target: stops[at + 1],
-      toward: stops[stops.length - 1], tries: 0,
-    };
-    ask(`la station qui suit <b>${net.stations[stops[at]][0]}</b> vers ` +
-        `<b>${net.stations[stops[stops.length - 1]][0]}</b>`, false, "Touche");
+    const target = stops[at + 1];
+    const toward = stops[stops.length - 1];
+
+    // la station d'avant fait la meilleure intruse : elle punit qui se trompe de sens
+    const decoys = [];
+    if (at > 0) decoys.push(stops[at - 1]);
+    const spare = stops.filter((v, i) => Math.abs(i - at) > 1 && v !== target);
+    while (decoys.length < 2 && spare.length) {
+      const other = spare.splice(Math.floor(Math.random() * spare.length), 1)[0];
+      if (!decoys.includes(other)) decoys.push(other);
+    }
+
+    Game.question = { kind: "next", line: Game.line, from: stops[at], target, toward };
+    ask(`quelle station suit <b>${net.stations[stops[at]][0]}</b> vers ` +
+        `<b>${net.stations[toward][0]}</b> ?`, false, "");
+    showChoices(shuffle([
+      { label: net.stations[target][0], right: true, station: target },
+      ...decoys.map(i => ({ label: net.stations[i][0], right: false, station: i })),
+    ]), opt => {
+      const seconds = (performance.now() - started) / 1000;
+      if (opt.right) {
+        const points = Math.round(700 + 250 * Math.max(0, 1 - seconds / LIMIT.next));
+        Game.score += points;
+        Game.history.push({ kind: "next", name: net.stations[target][0], points });
+        say(`<em>${points} pts</em> · ${net.stations[target][0]}`, "near");
+        reveal = { won: true, until: performance.now() + 2600 };
+      } else {
+        Game.history.push({ kind: "next", name: null, points: 0 });
+        say(`<em>${net.stations[opt.station][0]}</em> · c'était ` +
+            `${net.stations[target][0]}`, "far");
+        reveal = { won: false, until: performance.now() + 2800 };
+      }
+      tally();
+      hideInputs();
+    });
   } else if (kind === "odd") {
     const mine = byLine[Game.line];
     const two = shuffle([...mine]).slice(0, 2);
@@ -815,10 +845,11 @@ Game.click = (px, py) => {
   if (!q || reveal) return;
   if (performance.now() - started < 250) return;   // garde contre le double clic
 
+  // seules quatre formes de questions se répondent en touchant la carte ; les autres
+  // passent par des propositions ou par le champ de saisie
   if (q.kind === "station") {
     const d = metersTo(px, py, q.target);
-    const slack = aimRadius();
-    const off = Math.max(0, d - slack);            // rien à perdre dans la zone de visée
+    const off = Math.max(0, d - aimRadius());      // rien à perdre dans la zone de visée
     const seconds = (performance.now() - started) / 1000;
     const points = Math.round(1000 * Math.exp(-off / 1600)) +
                    Math.round(250 * Math.max(0, 1 - seconds / LIMIT.station));
@@ -833,36 +864,23 @@ Game.click = (px, py) => {
     return;
   }
 
-  if (q.kind === "far") {
-    Game.history.push({ kind: "far", name: null, points: 0 });
-    say(`<em>temps écoulé</em> · la plus longue faisait ` +
-        `${q.best.d.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} km`, "far");
-    hideInputs();
-    reveal = { until: performance.now() + 3000 };
-  } else if (q.kind === "outside") {
-    Game.history.push({ kind: "outside", name: null, points: 0 });
-    say(`<em>temps écoulé</em> · ${net.stations[q.target][0]} est hors les murs`, "far");
-    hideInputs();
-    reveal = { until: performance.now() + 2800 };
-  } else if (q.kind === "which") {
-    Game.history.push({ kind: "which", name: null, points: 0 });
-    say(`<em>temps écoulé</em> · c'était la ligne ${lineName(q.right)}`, "far");
-    hideInputs();
-    reveal = { until: performance.now() + 2600 };
-  } else if (q.kind === "next") {
-    Game.history.push({ kind: "next", name: null, points: 0 });
-    say(`<em>temps écoulé</em> · c'était ${net.stations[q.target][0]}`, "far");
-    reveal = { won: false, until: performance.now() + 2600 };
-  } else if (q.kind === "odd") {
-    Game.history.push({ kind: "odd", name: null, points: 0 });
-    say(`<em>temps écoulé</em> · l'intruse était ${net.stations[q.odd][0]}`, "far");
-    hideInputs();
-    reveal = { until: performance.now() + 2600 };
-  } else if (q.kind === "theme") {
-    const got = q.found.length;
-    closeTheme();
-    say(`<em>temps écoulé</em> · ${got} sur ${q.need}`, got ? "near" : "far");
-  } else if (q.kind === "hue") {
+  if (q.kind === "spot") {
+    const d = metersTo(px, py, q.target);
+    const off = Math.max(0, d - aimRadius());
+    const seconds = (performance.now() - started) / 1000;
+    const points = Math.round(1000 * Math.exp(-off / 900)) +
+                   Math.round(250 * Math.max(0, 1 - seconds / LIMIT.spot));
+    Game.score += points;
+    Game.history.push({ kind: "spot", name: net.stations[q.target][0], d, points });
+    say(off === 0 ? `<em>${points} pts</em> · dans la zone`
+                  : `<em>${points} pts</em> · à ${format(d)}`,
+        off === 0 || off < 400 ? "near" : "far");
+    reveal = { at: [px, py], won: off === 0, until: performance.now() + 2100 };
+    tally();
+    return;
+  }
+
+  if (q.kind === "hue") {
     const line = lineAt(px, py);
     const seconds = (performance.now() - started) / 1000;
     if (line >= 0 && q.lines.includes(line)) {
@@ -889,63 +907,7 @@ Game.click = (px, py) => {
     return;
   }
 
-  if (q.kind === "far") {
-    Game.history.push({ kind: "far", name: null, points: 0 });
-    say(`<em>temps écoulé</em> · la plus longue faisait ` +
-        `${q.best.d.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} km`, "far");
-    hideInputs();
-    reveal = { until: performance.now() + 3000 };
-  } else if (q.kind === "outside") {
-    Game.history.push({ kind: "outside", name: null, points: 0 });
-    say(`<em>temps écoulé</em> · ${net.stations[q.target][0]} est hors les murs`, "far");
-    hideInputs();
-    reveal = { until: performance.now() + 2800 };
-  } else if (q.kind === "which") {
-    Game.history.push({ kind: "which", name: null, points: 0 });
-    say(`<em>temps écoulé</em> · c'était la ligne ${lineName(q.right)}`, "far");
-    hideInputs();
-    reveal = { until: performance.now() + 2600 };
-  } else if (q.kind === "next") {
-    const hit = nearest(px, py, byLine[q.line]);
-    const seconds = (performance.now() - started) / 1000;
-    if (hit === q.target) {
-      const points = Math.round((q.tries ? 400 : 800) +
-                                250 * Math.max(0, 1 - seconds / LIMIT.next));
-      Game.score += points;
-      Game.history.push({ kind: "next", name: net.stations[hit][0], points });
-      say(`<em>${points} pts</em> · ${net.stations[hit][0]}`, "near");
-      reveal = { won: true, until: performance.now() + 2400 };
-    } else {
-      q.tries++;
-      const why = hit >= 0 ? `<em>${net.stations[hit][0]}</em> · ce n'est pas elle`
-                           : "<em>aucune station par ici</em>";
-      if (q.tries >= 2) {
-        Game.history.push({ kind: "next", name: null, points: 0 });
-        say(`${why} · c'était ${net.stations[q.target][0]}`, "far");
-        reveal = { won: false, until: performance.now() + 2600 };
-      } else {
-        say(`${why} · un essai restant`, "far");
-      }
-    }
-    tally();
-    return;
-  }
-
-  if (q.kind === "spot") {
-    const d = metersTo(px, py, q.target);
-    const off = Math.max(0, d - aimRadius());
-    const seconds = (performance.now() - started) / 1000;
-    const points = Math.round(1000 * Math.exp(-off / 900)) +
-                   Math.round(250 * Math.max(0, 1 - seconds / LIMIT.spot));
-    Game.score += points;
-    Game.history.push({ kind: "spot", name: net.stations[q.target][0], d, points });
-    say(off === 0 ? `<em>${points} pts</em> · dans la zone`
-                  : `<em>${points} pts</em> · à ${format(d)}`,
-        off === 0 || off < 400 ? "near" : "far");
-    reveal = { at: [px, py], won: off === 0, until: performance.now() + 2100 };
-    tally();
-    return;
-  }
+  if (q.kind !== "district") return;                // les autres ne se cliquent pas
 
   // question d'arrondissement : chaque clic doit désigner une station encore à trouver
   const wanted = q.pool.filter(i => !q.found.includes(i));
@@ -961,7 +923,8 @@ Game.click = (px, py) => {
     const why = stray >= 0 && !q.found.includes(stray)
       ? `<em>${net.stations[stray][0]}</em> n'est pas dans le ${ordinal(q.district.n)}`
       : "<em>raté</em>";
-    say(`${why} · ${left > 0 ? left + " essai" + (left > 1 ? "s" : "") + " restant" + (left > 1 ? "s" : "") : "dernier"}`, "far");
+    say(`${why} · ${left > 0 ? left + " essai" + (left > 1 ? "s" : "") +
+        " restant" + (left > 1 ? "s" : "") : "dernier"}`, "far");
   }
   tally();
 
@@ -977,6 +940,7 @@ Game.click = (px, py) => {
   }
 };
 
+/* Décompte du temps accordé, et clôture d'office quand il est épuisé. */
 /* Décompte du temps accordé, et clôture d'office quand il est épuisé. */
 function tick(q) {
   const limit = LIMIT[q.kind];
@@ -1005,6 +969,7 @@ function tick(q) {
   } else if (q.kind === "next") {
     Game.history.push({ kind: "next", name: null, points: 0 });
     say(`<em>temps écoulé</em> · c'était ${net.stations[q.target][0]}`, "far");
+    hideInputs();
     reveal = { won: false, until: performance.now() + 2600 };
   } else if (q.kind === "odd") {
     Game.history.push({ kind: "odd", name: null, points: 0 });
@@ -1015,90 +980,14 @@ function tick(q) {
     const got = q.found.length;
     closeTheme();
     say(`<em>temps écoulé</em> · ${got} sur ${q.need}`, got ? "near" : "far");
-  } else if (q.kind === "hue") {
-    Game.history.push({ kind: "hue", name: null, points: 0 });
-    say(`<em>temps écoulé</em> · c'était la ligne ${lineName(q.line)}`, "far");
-    endHue();
-  } else if (q.kind === "far") {
-    if (reveal) {
-      for (const p of q.pairs) {
-        const win = p === q.best;
-        ctx.save();
-        ctx.setLineDash(win ? [] : [5, 5]);
-        ctx.lineWidth = win ? 3 : 1.5;
-        ctx.strokeStyle = win ? "rgba(26,127,55,.75)" : "rgba(140,140,140,.55)";
-        ctx.beginPath();
-        ctx.moveTo(sx(net.stations[p.a][4][0]), sy(net.stations[p.a][4][1]));
-        ctx.lineTo(sx(net.stations[p.b][4][0]), sy(net.stations[p.b][4][1]));
-        ctx.stroke();
-        ctx.restore();
-      }
-      dot(ctx, q.best.a, "#1a7f37", true, "left");
-      dot(ctx, q.best.b, "#1a7f37", true);
-    }
-  } else if (q.kind === "outside") {
-    if (reveal) {
-      for (const i of q.shown) {
-        dot(ctx, i, i === q.target ? "#b3261e" : "#1a7f37", true);
-      }
-    }
-  } else if (q.kind === "which") {
-    if (reveal) {
-      ctx.lineWidth = 5;
-      ctx.strokeStyle = net.lines[q.right][1];
-      ctx.beginPath();
-      net.patterns.forEach(p => {
-        if (p[0] !== q.right) return;
-        const pts = net.shapes[p[1]].world;
-        ctx.moveTo(sx(pts[0][0]), sy(pts[0][1]));
-        for (let i = 1; i < pts.length; i++) ctx.lineTo(sx(pts[i][0]), sy(pts[i][1]));
-      });
-      ctx.stroke();
-      ctx.lineWidth = 2;
-      dot(ctx, q.target, "#1a7f37", true);
-    }
-  } else if (q.kind === "next") {
-    // rien avant la correction : situer soi-même le point de départ fait partie de la
-    // question, le montrer reviendrait à ne demander que le sens de marche
-    if (reveal) {
-      // la station de départ s'annonce du côté opposé à celle qu'il fallait trouver
-      const west = net.stations[q.from][2] < net.stations[q.target][2];
-      dot(ctx, q.from, "#8a8a8a", true, west ? "left" : "right");
-      dot(ctx, q.target, reveal.won ? "#1a7f37" : "#b3261e", true, west ? "right" : "left");
-    }
-  } else if (q.kind === "odd") {
-    if (reveal) {
-      for (const i of q.shown) {
-        dot(ctx, i, i === q.odd ? "#b3261e" : "#1a7f37", true);
-      }
-    }
-  } else if (q.kind === "theme") {
-    for (const i of q.found) dot(ctx, i, "#1a7f37", true);
-    if (reveal) {
-      for (const i of q.theme.hits) {
-        if (!q.found.includes(i)) dot(ctx, i, "#b3261e", q.theme.hits.length <= 6);
-      }
-    }
   } else if (q.kind === "name") {
     closeName();
     say(`<em>temps écoulé</em> · ${q.found.length} sur ${q.need}`,
         q.found.length ? "near" : "far");
   } else if (q.kind === "hue") {
-    if (reveal) {
-      ctx.lineWidth = 5;
-      for (const li of q.lines) {
-        ctx.strokeStyle = net.lines[li][1];
-        ctx.beginPath();
-        net.patterns.forEach(p => {
-          if (p[0] !== li) return;
-          const pts = net.shapes[p[1]].world;
-          ctx.moveTo(sx(pts[0][0]), sy(pts[0][1]));
-          for (let i = 1; i < pts.length; i++) ctx.lineTo(sx(pts[i][0]), sy(pts[i][1]));
-        });
-        ctx.stroke();
-      }
-      ctx.lineWidth = 2;
-    }
+    Game.history.push({ kind: "hue", name: null, points: 0 });
+    say(`<em>temps écoulé</em> · c'était la ligne ${lineName(q.line)}`, "far");
+    endHue();
   } else if (q.kind === "wards") {
     const got = q.found.length;
     closeWards();
@@ -1236,12 +1125,12 @@ Game.draw = ctx => {
       dot(ctx, q.target, "#1a7f37", true);
     }
   } else if (q.kind === "next") {
-    // rien avant la correction : situer soi-même le point de départ fait partie de la
-    // question, le montrer reviendrait à ne demander que le sens de marche
+    // le point de départ est montré sans son nom : on voit d'où l'on part, reste à
+    // reconnaître celle d'après — et du bon côté. Les noms viennent à la correction,
+    // annoncés de part et d'autre pour ne pas se chevaucher.
+    const west = net.stations[q.from][2] < net.stations[q.target][2];
+    dot(ctx, q.from, "#8a8a8a", !!reveal, west ? "left" : "right");
     if (reveal) {
-      // la station de départ s'annonce du côté opposé à celle qu'il fallait trouver
-      const west = net.stations[q.from][2] < net.stations[q.target][2];
-      dot(ctx, q.from, "#8a8a8a", true, west ? "left" : "right");
       dot(ctx, q.target, reveal.won ? "#1a7f37" : "#b3261e", true, west ? "right" : "left");
     }
   } else if (q.kind === "odd") {
