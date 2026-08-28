@@ -1746,7 +1746,8 @@ function finish() {
       <button class="again">Rejouer</button>
       <button class="back">La carte</button>
       <button class="share" title="Copier le résultat">⧉</button>
-    </div>`;
+    </div>
+    <div class="butin" hidden></div>`;
   over.hidden = false;
   over.querySelector(".again").onclick = () => { over.hidden = true; start(); };
   over.querySelector(".back").onclick = () => { over.hidden = true; };
@@ -1762,6 +1763,17 @@ function finish() {
     setTimeout(() => { copie.textContent = "⧉"; copie.classList.remove("done"); }, 1800);
   };
   if (record) confetti();
+
+  // la partie rapporte une carte, d'autant plus rare que le score est élevé
+  const gagnee = window.Cards && Cards.tirage(Game.score);
+  if (gagnee >= 0) {
+    const neuve = Cards.garder(gagnee);
+    const butin = over.querySelector(".butin");
+    butin.hidden = false;
+    butin.innerHTML = `<p class="sortie">${neuve ? "Nouvelle carte" : "Carte en double"}` +
+      ` · collection ${Cards.total()} / ${net.stations.length}</p><div class="ecrin"></div>`;
+    Cards.poser(butin.querySelector(".ecrin"), gagnee);
+  }
 }
 
 playBtn.disabled = true;
