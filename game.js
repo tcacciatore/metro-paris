@@ -2,8 +2,8 @@
    retrouver une station nommée, ou désigner plusieurs stations d'un arrondissement.
    S'appuie sur les données déjà chargées par app.js (réseau, arrondissements). */
 
-/* Autant de questions que de formes : une manche les pose toutes, une fois chacune. */
-const ROUNDS = 12;
+/* Une manche pose les quatorze formes, plus six reprises tirées au sort. */
+const ROUNDS = 20;
 /* Tolérance de visée. Elle suit le zoom : viser à 15 pixels près doit valoir la même
    chose que l'on regarde tout le réseau ou un seul quartier. */
 /* Coup de pouce sur « Trouve telle station » : passé ces fractions du temps accordé,
@@ -21,24 +21,26 @@ const PICK_PX = 26;              // portée d'un clic pour désigner une station
 const PICK_MIN = 300;
 const LIMIT = { station: 15, district: 25, spot: 15, name: 30, wards: 35,
                 hue: 15, theme: 35, next: 18, odd: 20, which: 15,
-                outside: 20, far: 20 };                               // secondes, par type
+                outside: 20, far: 20, fake: 20, landmark: 18 };       // secondes, par type
 
 /* Les douze formes de questions. Elles ne sont pas classées : la difficulté d'une manche
    ne vient pas de l'ordre des types mais de ce qu'on tire à l'intérieur de chacun — plus
    la manche avance, plus la station, l'arrondissement ou le thème sont retors. L'ordre,
    lui, est entièrement rebattu à chaque partie. */
-const KINDS = ["station", "which", "hue", "name", "odd", "outside", "spot",
-               "district", "far", "next", "theme", "wards"];   // ROUNDS en dépend
+const KINDS = ["station", "which", "hue", "name", "odd", "outside", "spot", "landmark",
+               "district", "far", "next", "fake", "theme", "wards"];
 
 /* Formes assez accessibles pour ouvrir une manche. */
 const OPENERS = ["station", "which", "hue"];
 
-/* Questions supplémentaires si le catalogue devenait plus court qu'une manche. */
-const FILLERS = ["station", "spot", "hue", "odd"];
+/* Formes admises en reprise quand la manche est plus longue que le catalogue : on évite
+   celles dont le vivier est le plus étroit, pour ne pas radoter. */
+const FILLERS = ["station", "spot", "which", "odd", "next", "outside", "far",
+                 "landmark", "fake", "hue", "district"];
 
 const NEEDS_LINE = new Set(["spot", "name", "wards", "next", "odd"]);
 
-const BEST_KEY = "metro-chasse-record-12";
+const BEST_KEY = "metro-chasse-record-20";
 
 /* Titres décernés en fin de manche, du meilleur au plus modeste. */
 const GRADES = [
@@ -487,6 +489,91 @@ function loosely(box, factor, jitter = 0.5) {
   return { minX: cx + dx - w, maxX: cx + dx + w, minY: cy + dy - h, maxY: cy + dy + h };
 }
 
+/* Une vingtaine de lieux parisiens, par leurs coordonnées. La bonne réponse n'est jamais
+   écrite : c'est la station la plus proche, calculée sur les données du réseau. */
+const LANDMARKS = [
+  ["la tour Eiffel", 48.8584, 2.2945],
+  ["le Sacré-Cœur", 48.8867, 2.3431],
+  ["Notre-Dame", 48.8530, 2.3499],
+  ["l'Arc de Triomphe", 48.8738, 2.2950],
+  ["le musée du Louvre", 48.8606, 2.3376],
+  ["l'entrée du Père-Lachaise", 48.8615, 2.3880],
+  ["le Moulin Rouge", 48.8842, 2.3323],
+  ["le Panthéon", 48.8462, 2.3464],
+  ["l'Opéra Garnier", 48.8720, 2.3316],
+  ["les Catacombes", 48.8338, 2.3324],
+  ["le Parc des Princes", 48.8414, 2.2530],
+  ["le Stade de France", 48.9245, 2.3601],
+  ["la Grande Arche", 48.8926, 2.2361],
+  ["le zoo de Vincennes", 48.8322, 2.4136],
+  ["le musée d'Orsay", 48.8600, 2.3266],
+  ["le Centre Pompidou", 48.8607, 2.3522],
+  ["le jardin du Luxembourg", 48.8462, 2.3372],
+  ["la basilique de Saint-Denis", 48.9362, 2.3596],
+  ["les Puces de Saint-Ouen", 48.9017, 2.3417],
+  ["le parc de la Villette", 48.8938, 2.3900],
+  ["Bercy Village", 48.8330, 2.3866],
+  ["la tour Montparnasse", 48.8422, 2.3220],
+  ["le Grand Palais", 48.8661, 2.3125],
+  ["la Butte aux Cailles", 48.8272, 2.3494],
+];
+
+/* Stations les plus proches d'un point, de la plus proche à la plus lointaine. */
+function nearestTo(lat, lon) {
+  return net.stations
+    .map((st, i) => ({ i, d: Math.hypot((st[1] - lat) * 1.5, st[2] - lon) }))
+    .sort((a, b) => a.d - b.d);
+}
+
+/* Fabrique un nom de station qui sonne juste et n'existe pas : on recolle la tête d'un
+   vrai nom à la queue d'un autre. */
+/* Les noms génériques du réseau, dont on peut recoller les morceaux. */
+const HEADS = /^(Porte|Mairie|Église|Pont|Place|Gare|Château|Rue|Avenue|Boulevard)\s+(de la|des|du|de|d')\s*/i;
+
+/* On garde l'article du morceau repris — « du Nord » reste « du Nord » — et on élide
+   devant une voyelle. Sans quoi l'imposteur se repérerait à sa faute de français plutôt
+   qu'à sa géographie. */
+function elide(mot, article, suite) {
+  let art = article.toLowerCase();
+  if (art === "de" || art === "d'") {
+    art = /^[aeiouyâàéèêëîïôöûü]/i.test(suite) ? "d'" : "de";
+  }
+  const joint = art.endsWith("'") ? "" : " ";
+  return `${mot} ${art}${joint}${suite}`.replace(/\s+/g, " ").trim();
+}
+
+/* Fabrique un nom de station qui sonne juste et n'existe pas : on recolle la tête d'un
+   vrai nom à la queue d'un autre. */
+function impostor() {
+  const composes = [], generiques = [];
+  for (const st of net.stations) {
+    const m = st[0].match(HEADS);
+    if (m) generiques.push({ mot: m[1], art: m[2], suite: st[0].slice(m[0].length) });
+    const cut = st[0].split(" - ");
+    if (cut.length === 2 && cut[0].length > 3 && cut[1].length > 3) {
+      composes.push({ tete: cut[0], queue: cut[1] });
+    }
+  }
+  const known = new Set(net.stations.map(st => plain(st[0])));
+
+  for (let essai = 0; essai < 90; essai++) {
+    let nom;
+    if (Math.random() < 0.5 && generiques.length > 1) {
+      const a = generiques[Math.floor(Math.random() * generiques.length)];
+      const b = generiques[Math.floor(Math.random() * generiques.length)];
+      if (a === b || !b.suite) continue;
+      nom = elide(a.mot, b.art, b.suite);
+    } else {
+      const a = composes[Math.floor(Math.random() * composes.length)];
+      const b = composes[Math.floor(Math.random() * composes.length)];
+      if (!a || !b || a === b) continue;
+      nom = `${a.tete} - ${b.queue}`;
+    }
+    if (!known.has(plain(nom)) && nom.length < 34) return nom;
+  }
+  return null;
+}
+
 /* Distance entre deux stations, en kilomètres : un degré de longitude vaut 73,2 km à la
    latitude de Paris, et `apart` compte justement en unités de longitude. */
 const km = (a, b) => apart(a, b) * 73.2;
@@ -592,7 +679,69 @@ function nextQuestion() {
   }
   Game.lastKind = kind;
 
-  if (kind === "far") {
+  if (kind === "landmark") {
+    const [lieu, lat, lon] = LANDMARKS[Math.floor(Math.random() * LANDMARKS.length)];
+    const proches = nearestTo(lat, lon);
+    const bonne = proches[0].i;
+    // les intruses viennent du voisinage : assez près pour hésiter, jamais les plus
+    // proches, sinon la question deviendrait injuste
+    const deux = shuffle(proches.slice(2, 8).map(o => o.i)).slice(0, 2);
+    Game.question = { kind: "landmark", lieu, at: [lat, lon], target: bonne,
+                      shown: [...deux, bonne] };
+    ask(`Vous allez à <b>${lieu}</b> : quelle station est la plus proche ?`,
+        false, "");
+    showChoices(shuffle([
+      { label: net.stations[bonne][0], right: true, station: bonne },
+      ...deux.map(i => ({ label: net.stations[i][0], right: false, station: i })),
+    ]), opt => {
+      const seconds = (performance.now() - started) / 1000;
+      if (opt.right) {
+        const points = award(Math.round(700 +
+                             250 * Math.max(0, 1 - seconds / LIMIT.landmark)), true);
+        Game.history.push({ kind: "landmark", name: net.stations[bonne][0], points });
+        say(`<em>${points} pts</em> · ${net.stations[bonne][0]}`, "near");
+      } else {
+        award(0, false);
+        Game.history.push({ kind: "landmark", name: null, points: 0 });
+        say(`<em>${net.stations[opt.station][0]}</em> · c'était ` +
+            `${net.stations[bonne][0]}`, "far");
+      }
+      tally();
+      hideInputs();
+      reveal = { until: performance.now() + 2800 };
+    });
+  } else if (kind === "fake") {
+    const faux = impostor();
+    if (!faux) { Game.plan[Game.step] = "station"; return nextQuestion(); }
+    // deux vraies stations de la même famille que l'imposteur, pour brouiller les pistes
+    const tete = faux.split(/ - | /)[0];
+    const cousines = net.stations.map((_, i) => i)
+      .filter(i => net.stations[i][0].startsWith(tete));
+    const deux = shuffle([...(cousines.length >= 2 ? cousines : fame.slice(0, 120))])
+      .slice(0, 2);
+    Game.question = { kind: "fake", faux, shown: deux };
+    ask("l'imposteur : laquelle de ces stations n'existe pas ?", false, "Trouve");
+    showChoices(shuffle([
+      { label: faux, right: true },
+      ...deux.map(i => ({ label: net.stations[i][0], right: false, station: i })),
+    ]), opt => {
+      const seconds = (performance.now() - started) / 1000;
+      if (opt.right) {
+        const points = award(Math.round(700 +
+                             250 * Math.max(0, 1 - seconds / LIMIT.fake)), true);
+        Game.history.push({ kind: "fake", name: faux, points });
+        say(`<em>${points} pts</em> · ${faux} n'a jamais existé`, "near");
+      } else {
+        award(0, false);
+        Game.history.push({ kind: "fake", name: null, points: 0 });
+        say(`<em>${net.stations[opt.station][0]}</em> existe bel et bien · ` +
+            `l'imposteur était ${faux}`, "far");
+      }
+      tally();
+      hideInputs();
+      reveal = { until: performance.now() + 2800 };
+    });
+  } else if (kind === "far") {
     // on tire beaucoup de triplets, puis on choisit selon l'écart entre la paire la plus
     // longue et sa suivante : net, la réponse saute aux yeux ; serré, il faut mesurer
     const pool = fame.slice(0, 220);
@@ -1130,6 +1279,32 @@ function tick(q) {
         `${q.best.d.toLocaleString("fr-FR", { maximumFractionDigits: 1 })} km`, "far");
     hideInputs();
     reveal = { until: performance.now() + 3000 };
+  } else if (q.kind === "landmark") {
+    if (reveal) {
+      // le lieu lui-même, puis les stations proposées
+      const [x, y] = merc(q.at[0], q.at[1]);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx(x), sy(y), 7, 0, 6.2832);
+      ctx.fillStyle = "#f59e0b";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = skin.halo;
+      ctx.stroke();
+      ctx.font = "600 12px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = skin.halo;
+      ctx.strokeText(q.lieu, sx(x) + 11, sy(y));
+      ctx.fillStyle = "#f59e0b";
+      ctx.fillText(q.lieu, sx(x) + 11, sy(y));
+      ctx.restore();
+      for (const i of q.shown) {
+        dot(ctx, i, i === q.target ? "#1a7f37" : "#b3261e", true);
+      }
+    }
+  } else if (q.kind === "fake") {
+    if (reveal) for (const i of q.shown) dot(ctx, i, "#1a7f37", true);
   } else if (q.kind === "outside") {
     Game.history.push({ kind: "outside", name: null, points: 0 });
     say(`<em>temps écoulé</em> · ${net.stations[q.target][0]} est hors les murs`, "far");
@@ -1303,6 +1478,32 @@ Game.draw = ctx => {
       dot(ctx, q.best.a, "#1a7f37", true, "left");
       dot(ctx, q.best.b, "#1a7f37", true);
     }
+  } else if (q.kind === "landmark") {
+    if (reveal) {
+      // le lieu lui-même, puis les stations proposées
+      const [x, y] = merc(q.at[0], q.at[1]);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(sx(x), sy(y), 7, 0, 6.2832);
+      ctx.fillStyle = "#f59e0b";
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = skin.halo;
+      ctx.stroke();
+      ctx.font = "600 12px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = skin.halo;
+      ctx.strokeText(q.lieu, sx(x) + 11, sy(y));
+      ctx.fillStyle = "#f59e0b";
+      ctx.fillText(q.lieu, sx(x) + 11, sy(y));
+      ctx.restore();
+      for (const i of q.shown) {
+        dot(ctx, i, i === q.target ? "#1a7f37" : "#b3261e", true);
+      }
+    }
+  } else if (q.kind === "fake") {
+    if (reveal) for (const i of q.shown) dot(ctx, i, "#1a7f37", true);
   } else if (q.kind === "outside") {
     if (reveal) {
       for (const i of q.shown) {
@@ -1485,6 +1686,7 @@ function start() {
 function stop() {
   wear("jour");
   showRecord();
+  if (bounds) flyTo(frameTo(bounds));              // la carte reprend sa vue d'ensemble
   if (spotlight.length) { spotlight = []; bgDirty = true; }
   Game.playing = false;
   Game.question = null;
@@ -1504,7 +1706,8 @@ function finish() {
   const avg = aimed.length
     ? aimed.reduce((s, h) => s + h.d, 0) / aimed.length : null;
   const zones = done.filter(h => h.kind === "district");
-  const links = done.filter(h => ["next", "odd", "which", "outside", "far"].includes(h.kind));
+  const links = done.filter(h =>
+    ["next", "odd", "which", "outside", "far", "landmark", "fake"].includes(h.kind));
   const quizzes = done.filter(h => h.kind === "theme" || h.kind === "name" || h.kind === "wards");
   const spotted = zones.reduce((s, h) => s + h.hits, 0);
   const wanted = zones.reduce((s, h) => s + h.need, 0);

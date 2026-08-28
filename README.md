@@ -31,9 +31,9 @@ par `fetch`, que le protocole `file://` refuse.
 
 ## La chasse aux stations
 
-Le bouton **Jouer** lance une manche de douze questions, noms de stations masqués. Il y a
-douze formes de questions : une manche les pose donc toutes, une fois chacune, dans un
-ordre entièrement rebattu à chaque partie.
+Le bouton **Jouer** lance une manche de vingt questions, noms de stations masqués. Il
+existe quatorze formes de questions : une manche les pose toutes, plus six reprises tirées
+au sort, dans un ordre entièrement rebattu — et jamais deux fois la même d'affilée.
 
 | Question | Ce qu'elle demande | Comment on répond |
 |---|---|---|
@@ -49,6 +49,8 @@ ordre entièrement rebattu à chaque partie.
 | *Pour aller à Alésia, quelle ligne prendre ?* | rattacher une station à sa ligne | trois pastilles de ligne |
 | *Laquelle n'est pas dans Paris ?* | savoir où s'arrête la ville | trois propositions |
 | *Trouve la paire de stations la plus éloignée* | jauger des distances à vue | trois paires |
+| *Vous allez à la tour Eiffel : quelle station ?* | savoir où descendre | trois propositions |
+| *Laquelle de ces stations n'existe pas ?* | démasquer un nom fabriqué | trois propositions |
 
 Les questions portant sur une ligne recadrent la carte sur elle, sans les noms, avant de
 revenir au réseau entier. Pendant une partie, **toutes les stations sont dessinées à
@@ -72,6 +74,14 @@ glissante descend un classement de difficulté au fil des questions.
 | lignes proposées | proximité à la station demandée, pour que le choix ne soit pas évident |
 | stations de banlieue | éloignement de Paris — l'aéroport d'Orly d'abord, Mairie de Montrouge pour finir |
 | paires de stations | écart entre la plus longue et sa suivante : 60 % en début de manche, 94 % à la fin |
+
+Deux questions méritent un mot. Pour **le monument**, une vingtaine de lieux parisiens sont
+donnés par leurs seules coordonnées — la bonne réponse n'est jamais écrite, c'est la station
+la plus proche, calculée ; les intruses viennent du voisinage immédiat. Pour **l'imposteur**,
+le faux nom est fabriqué en recollant la tête d'un vrai nom à la queue d'un autre, en
+respectant l'élision et l'article d'origine : « Porte du Nord », « Château d'Austerlitz »,
+« Pont des Lilas ». Sans ce soin, l'imposteur se repérerait à sa faute de français plutôt
+qu'à sa géographie.
 
 Aucun de ces classements ne relève de l'opinion : ils sortent tous des données.
 
