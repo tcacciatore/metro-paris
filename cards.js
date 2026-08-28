@@ -11,10 +11,16 @@ const RARETES = [
 ];
 
 const COLLECTION = "metro-collection";
+const CHROMEES = "metro-collection-chrome";
+
+/* Comme les chromatiques de Pokémon : n'importe quelle station peut sortir en version
+   chromée, quelle que soit sa rareté. C'est le hasard pur, un peu adouci par le score. */
+const CHANCE_CHROME = 30;
 
 let flux = [];                   // passages quotidiens par station
 let rangs = [];                  // rareté de chaque station, de 0 à 4
 let avoir = new Set();           // cartes déjà obtenues
+let brillantes = new Set();      // et celles qu'on a en version chromée
 
 const Cards = { pret: false };
 window.Cards = Cards;
@@ -37,7 +43,8 @@ addEventListener("metro:ready", () => {
 
   try {
     avoir = new Set(JSON.parse(localStorage.getItem(COLLECTION) || "[]"));
-  } catch { avoir = new Set(); }
+    brillantes = new Set(JSON.parse(localStorage.getItem(CHROMEES) || "[]"));
+  } catch { avoir = new Set(); brillantes = new Set(); }
   Cards.pret = true;
 });
 
@@ -63,15 +70,24 @@ Cards.tirage = score => {
   return -1;
 };
 
-Cards.garder = i => {
-  const neuve = !avoir.has(i);
-  avoir.add(i);
-  try { localStorage.setItem(COLLECTION, JSON.stringify([...avoir])); } catch { /* ignoré */ }
+Cards.garder = (i, chromee) => {
+  const neuve = chromee ? !brillantes.has(i) : !avoir.has(i);
+  (chromee ? brillantes : avoir).add(i);
+  try {
+    localStorage.setItem(COLLECTION, JSON.stringify([...avoir]));
+    localStorage.setItem(CHROMEES, JSON.stringify([...brillantes]));
+  } catch { /* ignoré */ }
   return neuve;
 };
 
+/* Une carte sort-elle chromée ? Une fois sur trente environ, un peu plus souvent
+   quand la partie a été bonne. */
+Cards.chrome = score => Math.random() < 1 / (CHANCE_CHROME - Math.min(14, score / 1600));
+
 Cards.possede = i => avoir.has(i);
+Cards.brille = i => brillantes.has(i);
 Cards.total = () => avoir.size;
+Cards.totalChrome = () => brillantes.size;
 Cards.rang = i => rangs[i];
 Cards.flux = i => flux[i];
 
@@ -138,7 +154,7 @@ function vignette(canvas, i) {
 }
 
 /* Le corps de la carte. */
-Cards.dessine = i => {
+Cards.dessine = (i, chromee) => {
   const st = net.stations[i];
   const rang = rangs[i];
   const rarete = RARETES[rang];
@@ -148,7 +164,8 @@ Cards.dessine = i => {
     .join("");
 
   return `
-    <article class="carte ${rarete.cle}">
+    <article class="carte ${rarete.cle}${chromee ? " chrome" : ""}">
+      ${chromee ? '<span class="etincelles">✦<i>✦</i><b>✦</b></span>' : ""}
       <header>
         <span class="titre">${st[0]}</span>
         <span class="pv">${Math.round(flux[i] / 10)} <i>PV</i></span>
@@ -165,15 +182,15 @@ Cards.dessine = i => {
           <dd>${flux[i].toLocaleString("fr-FR")} rames par jour</dd></div>
       </dl>
       <footer>
-        <span class="rarete">${"◆".repeat(rang + 1)} ${rarete.nom}</span>
+        <span class="rarete">${chromee ? "✦ Chromée · " : ""}${"◆".repeat(rang + 1)} ${rarete.nom}</span>
         <span class="numero">${String(i + 1).padStart(3, "0")} / ${net.stations.length}</span>
       </footer>
     </article>`;
 };
 
 /* Insère une carte dans un conteneur et dessine son illustration. */
-Cards.poser = (hote, i) => {
-  hote.innerHTML = Cards.dessine(i);
+Cards.poser = (hote, i, chromee) => {
+  hote.innerHTML = Cards.dessine(i, chromee);
   const toile = hote.querySelector(".vue");
   if (toile) requestAnimationFrame(() => vignette(toile, i));
   return hote.firstElementChild;
@@ -195,22 +212,26 @@ Cards.album = () => {
   }).reverse().join(" · ");
 
   const jetons = net.stations.map((st, i) => {
-    const eue = avoir.has(i);
+    const brille = brillantes.has(i);
+    const eue = avoir.has(i) || brille;
     const r = RARETES[rangs[i]];
     const lignes = eue
       ? st[3].map(l => `<b style="background:${net.lines[l][1]};color:${net.lines[l][2]}">${net.lines[l][0]}</b>`).join("")
       : "";
     // une case vide garde son numéro, comme dans un album : on voit ce qui manque
-    return `<div class="jeton ${eue ? "eue " + r.cle : "absente"}" data-i="${i}">
+    return `<div class="jeton ${eue ? "eue " + r.cle : "absente"}${brille ? " brille" : ""}"
+                 data-i="${i}" data-chrome="${brille ? 1 : 0}">
       <span class="nom">${eue ? st[0] : "n<sup>o</sup> " + String(i + 1).padStart(3, "0")}</span>
-      <span class="bas">${lignes}<span class="quel">${eue ? r.nom : "à trouver"}</span></span>
+      <span class="bas">${lignes}<span class="quel">${
+        brille ? "✦ chromée" : eue ? r.nom : "à trouver"}</span></span>
     </div>`;
   }).join("");
 
   albumVue.innerHTML = `
     <div class="entete">
       <h2>Collection</h2>
-      <span class="compte">${avoir.size} / ${net.stations.length} · ${parRarete}</span>
+      <span class="compte">${avoir.size} / ${net.stations.length} · ${parRarete}${
+        brillantes.size ? ` · ✦ ${brillantes.size} chromée${brillantes.size > 1 ? "s" : ""}` : ""}</span>
       <button class="fermer" title="Fermer">&times;</button>
     </div>
     <div class="grille">${jetons}</div>`;
@@ -223,7 +244,7 @@ Cards.album = () => {
     const loupe = document.createElement("div");
     loupe.className = "loupe";
     albumVue.appendChild(loupe);
-    Cards.poser(loupe, +jeton.dataset.i);
+    Cards.poser(loupe, +jeton.dataset.i, jeton.dataset.chrome === "1");
     loupe.onclick = () => loupe.remove();
   };
 };

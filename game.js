@@ -1000,6 +1000,10 @@ function nextQuestion() {
 
 function ask(html, plural = false, verb = "Trouve") {
   hud.querySelector(".step").textContent = `question ${Game.step + 1} sur ${ROUNDS}`;
+  // la hauteur du bandeau varie selon la question : le cadrage doit la suivre
+  requestAnimationFrame(() => {
+    topInset = Math.min(hud.offsetHeight + 26, innerHeight * 0.32);
+  });
   hud.querySelector(".ask").innerHTML = verb + " " + html;
   hideInputs();
   replay(hud.querySelector(".quest"));
@@ -1679,6 +1683,10 @@ function start() {
     if (!Game.playing) return;
     hud.hidden = false;
     nextQuestion();
+    // on attend que le bandeau soit dessiné pour connaître sa hauteur, puis on cadre
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (bounds && selected === null) flyTo(frameTo(bounds), 400);
+    }));
   });
   bgDirty = true;
 }
@@ -1686,6 +1694,7 @@ function start() {
 function stop() {
   wear("jour");
   showRecord();
+  topInset = 0;
   if (bounds) flyTo(frameTo(bounds));              // la carte reprend sa vue d'ensemble
   if (spotlight.length) { spotlight = []; bgDirty = true; }
   Game.playing = false;
@@ -1767,12 +1776,15 @@ function finish() {
   // la partie rapporte une carte, d'autant plus rare que le score est élevé
   const gagnee = window.Cards && Cards.tirage(Game.score);
   if (gagnee >= 0) {
-    const neuve = Cards.garder(gagnee);
+    const chromee = Cards.chrome(Game.score);
+    const neuve = Cards.garder(gagnee, chromee);
     const butin = over.querySelector(".butin");
     butin.hidden = false;
-    butin.innerHTML = `<p class="sortie">${neuve ? "Nouvelle carte" : "Carte en double"}` +
-      ` · collection ${Cards.total()} / ${net.stations.length}</p><div class="ecrin"></div>`;
-    Cards.poser(butin.querySelector(".ecrin"), gagnee);
+    butin.innerHTML = `<p class="sortie${chromee ? " eclat" : ""}">${
+      chromee ? "✦ Carte chromée ✦" : neuve ? "Nouvelle carte" : "Carte en double"
+      } · collection ${Cards.total()} / ${net.stations.length}</p><div class="ecrin"></div>`;
+    Cards.poser(butin.querySelector(".ecrin"), gagnee, chromee);
+    if (chromee) confetti();
   }
 }
 

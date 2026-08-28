@@ -512,7 +512,8 @@ body.explored #start h2 {
   color: var(--paper);
 }
 
-body.playing #panel, body.playing #start, body.playing #credit { display: none; }
+body.playing #panel, body.playing #start, body.playing #credit,
+body.playing > header { display: none; }
 
 @media (max-width: 640px) {
   #hud { top: 12px; }
@@ -978,4 +979,93 @@ body.explored #album { display: none; }
   place-content: center;
   background: rgba(8, 10, 14, .8);
   z-index: 5;
+}
+
+/* ---------- les cartes chromées ---------- */
+
+.carte.chrome {
+  background: linear-gradient(150deg, #cfd6e6, #f2f5fb 40%, #b3bdd2);
+  box-shadow: 0 10px 30px -10px rgba(60, 90, 180, .55),
+              0 0 16px -6px rgba(160, 200, 255, .5);
+}
+
+/* Un liseré irisé cerne la carte. C'est la teinte qui tourne, pas la forme : une forme
+   en rotation déborderait par ses coins. */
+.carte.chrome::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 15px;
+  background: conic-gradient(from 0deg, #ff9ec4, #9ed8ff, #a8ffd0,
+              #fff3a8, #d9a8ff, #ff9ec4);
+  z-index: -1;
+  animation: irise 7s linear infinite;
+}
+
+@keyframes irise {
+  to { filter: hue-rotate(360deg); }
+}
+
+/* la lumière balaie la surface, sans délaver ce qui est écrit dessous */
+.carte.chrome::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  background: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, .5) 46%,
+              rgba(200, 230, 255, .35) 52%, transparent 66%);
+  background-size: 240% 240%;
+  animation: holo 3.4s ease-in-out infinite;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.carte.chrome .rarete { color: #0f766e; }
+.carte.chrome .vue { border-color: rgba(30, 40, 60, .78); }
+
+/* trois étincelles qui scintillent en décalé */
+.carte .etincelles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  color: #fff;
+  text-shadow: 0 0 8px rgba(255, 255, 255, .95), 0 0 14px rgba(150, 210, 255, .8);
+  font-size: 15px;
+}
+.carte .etincelles i,
+.carte .etincelles b { position: absolute; font-style: normal; font-weight: 400; }
+.carte .etincelles { animation: brille 2.2s ease-in-out infinite; }
+.carte .etincelles i {
+  top: 46%; right: 9%;
+  font-size: 11px;
+  animation: brille 2.2s ease-in-out .7s infinite;
+}
+.carte .etincelles b {
+  bottom: 16%; left: 12%;
+  font-size: 13px;
+  animation: brille 2.2s ease-in-out 1.4s infinite;
+}
+.carte .etincelles { padding: 6px 0 0 8px; }
+
+@keyframes brille {
+  0%, 100% { opacity: .2; transform: scale(.75); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+/* dans l'album */
+.jeton.brille {
+  border-color: transparent;
+  background:
+    linear-gradient(#1a1e27, #1a1e27) padding-box,
+    conic-gradient(from 0deg, #ff9ec4, #9ed8ff, #a8ffd0, #fff3a8, #d9a8ff, #ff9ec4) border-box;
+  border: 1px solid transparent;
+}
+.jeton.brille .quel { color: #a8d8ff; font-weight: 700; }
+
+#over .sortie.eclat {
+  color: #0f766e;
+  font-weight: 700;
+  letter-spacing: .06em;
+  animation: brille 1.6s ease-in-out infinite;
 }

@@ -20,6 +20,7 @@ let running = 0;           // total sur le réseau, filtres compris
 let visible = new Set();   // lignes affichées
 let hovered = -1;          // ligne sous le curseur
 let spotlight = [];        // lignes mises en avant par le jeu, en guise d'indice
+let topInset = 0;          // hauteur occupée par le bandeau, à ne pas cadrer dessous
 let lastMouse = null;
 
 const view = { x: 0, y: 0, scale: 1 };
@@ -155,14 +156,15 @@ const clock = () => {
 
 /* Cadre une emprise géographique, éventuellement décalée pour dégager le panneau. */
 function frameTo(box, margin = 0.86, shift = 0, ceiling = Infinity) {
-  const w = cv.width / dpr, h = cv.height / dpr;
-  if (!w || !h) return null;
+  const w = cv.width / dpr, h = cv.height / dpr - topInset;
+  if (!w || h <= 0) return null;
   const scale = Math.min((w - Math.abs(shift)) / (box.maxX - box.minX),
-                         h / (box.maxY - box.minY) , ceiling / margin) * margin;
+                         h / (box.maxY - box.minY), ceiling / margin) * margin;
   return {
     scale,
     x: (box.minX + box.maxX) / 2 - shift / 2 / scale,
-    y: (box.minY + box.maxY) / 2,
+    // le bandeau mange le haut de l'écran : on centre sur ce qui reste
+    y: (box.minY + box.maxY) / 2 - topInset / 2 / scale,
   };
 }
 
