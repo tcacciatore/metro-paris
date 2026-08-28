@@ -6,6 +6,14 @@
 const ROUNDS = 12;
 /* Tolérance de visée. Elle suit le zoom : viser à 15 pixels près doit valoir la même
    chose que l'on regarde tout le réseau ou un seul quartier. */
+/* Coup de pouce sur « Trouve telle station » : passé ces fractions du temps accordé,
+   la ligne s'allume, puis un cercle se resserre autour de la cible. Chaque palier coûte
+   une part du score : attendre l'aide reste un choix, pas une aubaine. */
+const HINTS = [
+  { at: 0.40, keep: 0.85 },      // les lignes de la station passent en couleur pleine
+  { at: 0.70, keep: 0.70 },      // un cercle apparaît et se referme
+];
+
 const AIM_PX = 16;               // « pile dessus » sous ce rayon, en pixels
 const AIM_MIN = 200;             // ...sans jamais descendre sous ce rayon, en mètres
 const PICK_PX = 26;              // portée d'un clic pour désigner une station
@@ -52,17 +60,23 @@ const THEMES = [
   { ask: "dont le nom commence par « Mairie »", need: 2, re: /^mairie\b/ },
   { ask: "dont le nom contient « Pont »", need: 2, re: /\bpont\b/ },
   { ask: "dont le nom contient « Château »", need: 2, re: /\bchateau\b/ },
-  { ask: "qui portent un nom de président", need: 2,
+  { ask: "qui portent un nom de chef d'État", need: 2,
     only: ["Franklin D. Roosevelt", "Charles de Gaulle - Étoile",
-           "Bibliothèque François Mitterrand"] },
+           "Bibliothèque François Mitterrand", "George V"] },
   { ask: "qui portent un nom d'écrivain", need: 2,
     only: ["Victor Hugo", "Alexandre Dumas", "Voltaire", "Anatole France",
-           "Avenue Émile Zola"] },
+           "Avenue Émile Zola", "Villejuif - Louis Aragon", "Goncourt",
+           "Bobigny - Pantin - Raymond Queneau", "Edgar Quinet"] },
   { ask: "qui portent un nom de bataille ou de victoire", need: 2,
     only: ["Gare d'Austerlitz", "Iéna", "Wagram", "Réaumur - Sébastopol",
-           "Stalingrad", "Alésia", "Solférino", "Campo-Formio"] },
+           "Stalingrad", "Alésia", "Solférino", "Campo-Formio", "Bir-Hakeim",
+           "Crimée", "Alma - Marceau"] },
   { ask: "qui portent un nom de femme", need: 2,
-    only: ["Louise Michel", "Pierre et Marie Curie", "Barbara"] },
+    only: ["Louise Michel", "Pierre et Marie Curie", "Barbara",
+           "Bagneux - Lucie Aubrac"] },
+  { ask: "qui portent un nom d'artiste", need: 2,
+    only: ["Serge Gainsbourg", "Barbara", "Bobigny - Pablo Picasso",
+           "Michel-Ange - Auteuil", "Michel-Ange - Molitor"] },
 ];
 
 const Game = {
@@ -71,6 +85,7 @@ const Game = {
   score: 0,
   step: 0,
   history: [],
+  streak: 0,         // bonnes réponses d'affilée
   line: null,        // ligne sur laquelle porte la question en cours
   lastKind: null,
   plan: [],          // formes de questions de la manche, tirées au début
@@ -98,6 +113,10 @@ const over = document.getElementById("over");
 const playBtn = document.getElementById("play");
 const timebar = hud.querySelector(".clock");
 const pips = hud.querySelector(".pips");
+const fx = document.getElementById("fx");
+const rush = document.getElementById("rush");
+const edge = document.getElementById("edge");
+const party = document.getElementById("party");
 const recordLine = document.getElementById("record");
 const choices = hud.querySelector(".choices");
 const reply = hud.querySelector(".reply");
@@ -140,7 +159,7 @@ reply.addEventListener("submit", e => {
   }
   if (q.list.includes(n)) {
     q.found.push(n);
-    Game.score += 200;
+    award(200, true);
     say(`<em>${ordinal(n)}</em> · ${q.found.length} sur ${q.need}`, "near");
   } else {
     q.misses++;
@@ -160,7 +179,7 @@ function answerTheme(q) {
   const hit = match(text, left);
   if (hit >= 0) {
     q.found.push(hit);
-    Game.score += 350;
+    award(350, true);
     say(`<em>${net.stations[hit][0]}</em> · ${q.found.length} sur ${q.need}`, "near");
   } else {
     q.misses++;
@@ -316,20 +335,35 @@ function edits(a, b) {
   return prev[b.length];
 }
 
-/* Station visée par une saisie, parmi une liste de candidates. */
+/* Morceaux d'un nom de station. On coupe sur les tirets encadrés d'espaces et les
+   parenthèses, jamais sur les traits d'union internes : « Saint-Denis » reste entier,
+   « Bagneux - Lucie Aubrac » donne ses deux moitiés. */
+function pieces(name) {
+  return [name, ...name.split(/ [-–] |[(),]/)]
+    .map(plain)
+    .filter(p => p.length > 2);
+}
+
+/* Station visée par une saisie, parmi une liste de candidates. On accepte le nom entier,
+   l'un de ses morceaux, une saisie plus courte ou plus longue que le nom, et les fautes
+   de frappe — répondre « Lucie Aubrac » pour « Bagneux - Lucie Aubrac » doit passer. */
 function match(text, pool) {
   const q = plain(text);
   if (q.length < 3) return -1;
   let best = -1, bestScore = Infinity;
   for (const i of pool) {
-    const name = plain(net.stations[i][0]);
-    if (name === q) return i;
-    const d = edits(q, name);
-    const inside = name.includes(q) && q.length >= 4;
-    const score = inside ? Math.abs(name.length - q.length) * 0.1 : d;
-    if ((inside || d <= 2) && score < bestScore) { bestScore = score; best = i; }
+    let score = Infinity;
+    for (const part of pieces(net.stations[i][0])) {
+      if (part === q) { score = 0; break; }
+      const d = edits(q, part);
+      if (d <= 2) score = Math.min(score, d);
+      const contains = (part.includes(q) && q.length >= 4) ||
+                       (q.includes(part) && part.length >= 4);
+      if (contains) score = Math.min(score, 0.5 + Math.abs(part.length - q.length) * 0.05);
+    }
+    if (score < bestScore) { bestScore = score; best = i; }
   }
-  return best;
+  return bestScore <= 2.5 ? best : -1;
 }
 
 /* Un point tombe-t-il dans un anneau ? Lancer de rayon, en coordonnées écran. */
@@ -473,10 +507,11 @@ function nextChoice() {
   ]), opt => {
     if (opt.right) {
       q.found.push(opt.station);
-      Game.score += 300;
+      award(300, true);
       say(`<em>${net.stations[opt.station][0]}</em> · ${q.found.length} sur ${q.need}`, "near");
     } else {
       q.misses++;
+      award(0, false);
       say(`<em>${net.stations[opt.station][0]}</em> n'est pas sur cette ligne`, "far");
     }
     tally();
@@ -570,11 +605,12 @@ function nextQuestion() {
       const seconds = (performance.now() - started) / 1000;
       const span = d => d.toLocaleString("fr-FR", { maximumFractionDigits: 1 }) + " km";
       if (opt.right) {
-        const points = Math.round(700 + 250 * Math.max(0, 1 - seconds / LIMIT.far));
-        Game.score += points;
+        const points = award(Math.round(700 +
+                             250 * Math.max(0, 1 - seconds / LIMIT.far)), true);
         Game.history.push({ kind: "far", name: span(draw.best.d), points });
         say(`<em>${points} pts</em> · ${span(draw.best.d)} à vol d'oiseau`, "near");
       } else {
+        award(0, false);
         Game.history.push({ kind: "far", name: null, points: 0 });
         say(`<em>${span(opt.pair.d)}</em> · la plus longue faisait ${span(draw.best.d)}`, "far");
       }
@@ -601,11 +637,12 @@ function nextQuestion() {
     ]), opt => {
       const seconds = (performance.now() - started) / 1000;
       if (opt.right) {
-        const points = Math.round(700 + 250 * Math.max(0, 1 - seconds / LIMIT.outside));
-        Game.score += points;
+        const points = award(Math.round(700 +
+                             250 * Math.max(0, 1 - seconds / LIMIT.outside)), true);
         Game.history.push({ kind: "outside", name: net.stations[target][0], points });
         say(`<em>${points} pts</em> · ${net.stations[target][0]} est hors les murs`, "near");
       } else {
+        award(0, false);
         Game.history.push({ kind: "outside", name: null, points: 0 });
         say(`<em>${net.stations[opt.station][0]}</em> est bien dans Paris · ` +
             `c'était ${net.stations[target][0]}`, "far");
@@ -637,11 +674,12 @@ function nextQuestion() {
     ]), opt => {
       const seconds = (performance.now() - started) / 1000;
       if (opt.right) {
-        const points = Math.round(700 + 250 * Math.max(0, 1 - seconds / LIMIT.which));
-        Game.score += points;
+        const points = award(Math.round(700 +
+                             250 * Math.max(0, 1 - seconds / LIMIT.which)), true);
         Game.history.push({ kind: "which", name: net.stations[target][0], points });
         say(`<em>${points} pts</em> · ${net.stations[target][0]} est sur la ligne ${lineName(right)}`, "near");
       } else {
+        award(0, false);
         Game.history.push({ kind: "which", name: null, points: 0 });
         say(`<em>ligne ${lineName(opt.line)}</em> · c'était la ${lineName(right)}`, "far");
       }
@@ -678,12 +716,13 @@ function nextQuestion() {
     ]), opt => {
       const seconds = (performance.now() - started) / 1000;
       if (opt.right) {
-        const points = Math.round(700 + 250 * Math.max(0, 1 - seconds / LIMIT.next));
-        Game.score += points;
+        const points = award(Math.round(700 +
+                             250 * Math.max(0, 1 - seconds / LIMIT.next)), true);
         Game.history.push({ kind: "next", name: net.stations[target][0], points });
         say(`<em>${points} pts</em> · ${net.stations[target][0]}`, "near");
         reveal = { won: true, until: performance.now() + 2600 };
       } else {
+        award(0, false);
         Game.history.push({ kind: "next", name: null, points: 0 });
         say(`<em>${net.stations[opt.station][0]}</em> · c'était ` +
             `${net.stations[target][0]}`, "far");
@@ -713,11 +752,12 @@ function nextQuestion() {
     ]), opt => {
       const seconds = (performance.now() - started) / 1000;
       if (opt.right) {
-        const points = Math.round(700 + 250 * Math.max(0, 1 - seconds / LIMIT.odd));
-        Game.score += points;
+        const points = award(Math.round(700 +
+                             250 * Math.max(0, 1 - seconds / LIMIT.odd)), true);
         Game.history.push({ kind: "odd", name: net.stations[opt.station][0], points });
         say(`<em>${points} pts</em> · ${net.stations[odd][0]} est ailleurs`, "near");
       } else {
+        award(0, false);
         Game.history.push({ kind: "odd", name: null, points: 0 });
         say(`<em>${net.stations[opt.station][0]}</em> est bien sur la ligne · ` +
             `l'intruse était ${net.stations[odd][0]}`, "far");
@@ -787,6 +827,7 @@ function nextQuestion() {
   }
   started = performance.now();
   reveal = null;
+  if (spotlight.length) { spotlight = []; bgDirty = true; }
   timebar.className = "clock";
   timebar.firstElementChild.style.width = "100%";
 }
@@ -808,6 +849,29 @@ function say(html, tone) {
   v.hidden = false;
 }
 
+/* Une manche se raconte en douze carrés : vert quand c'est acquis, orange à moitié,
+   rouge sinon. De quoi copier son résultat sans rien révéler des réponses. */
+function shareText(grade) {
+  const grid = Game.history
+    .map(h => (v => v > 0.75 ? "🟩" : v > 0.25 ? "🟨" : "🟥")(success(h)))
+    .join("");
+  return `La chasse aux stations · ${Game.score} pts\n${grade}\n${grid}\n` +
+         location.href.split(/[?#]/)[0];
+}
+
+/* Confettis aux couleurs du réseau. */
+function confetti() {
+  for (let i = 0; i < 26; i++) {
+    const el = document.createElement("i");
+    el.style.left = Math.random() * 100 + "vw";
+    el.style.background = net.lines[i % net.lines.length][1];
+    el.style.animationDuration = (1.8 + Math.random() * 1.6) + "s";
+    el.style.animationDelay = (Math.random() * 0.5) + "s";
+    party.appendChild(el);
+    setTimeout(() => el.remove(), 4200);
+  }
+}
+
 /* Part de réussite d'une question, de 0 à 1 : c'est elle qui décerne le titre,
    le score brut récompensant en plus la rapidité. */
 function success(h) {
@@ -818,6 +882,54 @@ function success(h) {
 }
 
 let shown = 0, rolling = null;
+let touched = false;
+addEventListener("pointerdown", () => { touched = true; }, { once: true });
+
+/* Une série de bonnes réponses fait grimper les points. */
+const MULTIPLIERS = [1, 1, 1, 1.5, 1.5, 2, 2, 2, 3];
+const multiplier = () => MULTIPLIERS[Math.min(Game.streak, MULTIPLIERS.length - 1)];
+
+/* Les points s'envolent de l'endroit visé, le bord s'illumine, la carte tremble si l'on
+   s'est trompé. C'est ce qui fait qu'une réponse se sent au lieu de s'afficher. */
+function pop(text, x, y, ok) {
+  const el = document.createElement("div");
+  el.className = "float " + (ok ? "good" : "bad");
+  el.textContent = text;
+  el.style.left = (x ?? innerWidth / 2) + "px";
+  el.style.top = (y ?? innerHeight * 0.32) + "px";
+  fx.appendChild(el);
+  setTimeout(() => el.remove(), 1200);
+
+  edge.className = ok ? "good" : "bad";
+  setTimeout(() => { edge.className = ""; }, 260);
+
+  if (!ok) {
+    cv.classList.remove("shake");
+    void cv.offsetWidth;
+    cv.classList.add("shake");
+  }
+  // les navigateurs refusent la vibration tant que rien n'a été touché
+  if (touched) { try { navigator.vibrate?.(ok ? 12 : [0, 40, 30, 40]); } catch { /* ignoré */ } }
+}
+
+/* Attribue des points en tenant compte de la série, et rend la main sur le total obtenu. */
+function award(base, ok, x, y) {
+  const mult = ok ? multiplier() : 1;
+  const points = Math.max(0, Math.round(base * mult));
+  Game.score += points;
+  Game.streak = ok ? Game.streak + 1 : 0;
+  showStreak();
+  pop((points ? "+" + points : "raté") + (mult > 1 ? `  ×${mult}` : ""), x, y, ok);
+  return points;
+}
+
+function showStreak() {
+  const el = hud.querySelector(".streak");
+  if (Game.streak < 3) { el.hidden = true; return; }
+  el.textContent = `série ${Game.streak} · ×${multiplier()}`;
+  el.hidden = false;
+  void el.offsetWidth;
+}
 
 /* Le total grimpe vers sa nouvelle valeur : un score qui saute se remarque moins. */
 const tally = () => {
@@ -827,7 +939,7 @@ const tally = () => {
   const step = now => {
     const u = Math.min(1, (now - t0) / 420);
     shown = Math.round(from + (to - from) * (1 - Math.pow(1 - u, 3)));
-    box.textContent = `${shown} pts`;
+    box.textContent = `${shown.toLocaleString("fr-FR")} pts`;
     rolling = u < 1 ? requestAnimationFrame(step) : null;
   };
   rolling = requestAnimationFrame(step);
@@ -858,6 +970,16 @@ function metersTo(px, py, stationIdx) {
 }
 
 const aimRadius = () => Math.max(AIM_MIN, AIM_PX * mpp());
+
+/* Part du temps déjà consommée sur la question en cours. */
+const elapsed = q => (performance.now() - started) / 1000 / LIMIT[q.kind];
+
+/* Nombre de coups de pouce déjà donnés. */
+function hints(q) {
+  if (q.kind !== "station" || reveal) return 0;
+  const u = elapsed(q);
+  return HINTS.filter(h => u >= h.at).length;
+}
 const pickRadius = () => Math.max(PICK_MIN, PICK_PX * mpp());
 
 /* Station la plus proche d'un clic, toutes lignes confondues. */
@@ -881,13 +1003,16 @@ Game.click = (px, py) => {
     const d = metersTo(px, py, q.target);
     const off = Math.max(0, d - aimRadius());      // rien à perdre dans la zone de visée
     const seconds = (performance.now() - started) / 1000;
-    const points = Math.round(1000 * Math.exp(-off / 1600)) +
-                   Math.round(250 * Math.max(0, 1 - seconds / LIMIT.station));
-    Game.score += points;
+    const helped = hints(q);
+    const keep = helped ? HINTS[helped - 1].keep : 1;
+    const points = award(Math.round(1000 * Math.exp(-off / 1600) * keep) +
+                   Math.round(250 * Math.max(0, 1 - seconds / LIMIT.station)),
+                   off === 0, px, py);
     Game.history.push({ kind: "station", name: net.stations[q.target][0], d, points });
+    const aide = helped ? " · avec un coup de pouce" : "";
     say(off === 0
-        ? `<em>${points} pts</em> · dans la zone`
-        : `<em>${points} pts</em> · à ${format(d)} de la cible`,
+        ? `<em>${points} pts</em> · dans la zone${aide}`
+        : `<em>${points} pts</em> · à ${format(d)} de la cible${aide}`,
         off === 0 || off < 600 ? "near" : "far");
     reveal = { at: [px, py], won: off === 0, until: performance.now() + 2100 };
     tally();
@@ -898,9 +1023,9 @@ Game.click = (px, py) => {
     const d = metersTo(px, py, q.target);
     const off = Math.max(0, d - aimRadius());
     const seconds = (performance.now() - started) / 1000;
-    const points = Math.round(1000 * Math.exp(-off / 900)) +
-                   Math.round(250 * Math.max(0, 1 - seconds / LIMIT.spot));
-    Game.score += points;
+    const points = award(Math.round(1000 * Math.exp(-off / 900)) +
+                   Math.round(250 * Math.max(0, 1 - seconds / LIMIT.spot)),
+                   off === 0, px, py);
     Game.history.push({ kind: "spot", name: net.stations[q.target][0], d, points });
     say(off === 0 ? `<em>${points} pts</em> · dans la zone`
                   : `<em>${points} pts</em> · à ${format(d)}`,
@@ -914,9 +1039,8 @@ Game.click = (px, py) => {
     const line = lineAt(px, py);
     const seconds = (performance.now() - started) / 1000;
     if (line >= 0 && q.lines.includes(line)) {
-      const points = Math.round((q.tries ? 400 : 800) +
-                                250 * Math.max(0, 1 - seconds / LIMIT.hue));
-      Game.score += points;
+      const points = award(Math.round((q.tries ? 400 : 800) +
+                           250 * Math.max(0, 1 - seconds / LIMIT.hue)), true, px, py);
       Game.history.push({ kind: "hue", name: `ligne ${lineName(line)}`, points });
       say(`<em>${points} pts</em> · c'est bien la ligne ${lineName(line)}`, "near");
       endHue();
@@ -926,6 +1050,7 @@ Game.click = (px, py) => {
         ? `<em>ligne ${lineName(line)}</em> · ce n'est pas cette teinte`
         : "<em>à côté du tracé</em>";
       if (q.tries >= 2) {
+        award(0, false, px, py);
         Game.history.push({ kind: "hue", name: null, points: 0 });
         say(`${why} · c'était la ligne ${lineName(q.line)}`, "far");
         endHue();
@@ -944,10 +1069,11 @@ Game.click = (px, py) => {
   const hit = nearest(px, py, wanted);
   if (hit >= 0) {
     q.found.push(hit);
-    Game.score += 350;
+    award(350, true, px, py);
     say(`<em>${net.stations[hit][0]}</em> · ${q.found.length} sur ${q.need}`, "near");
   } else {
     q.misses++;
+    award(0, false, px, py);
     const left = 3 - q.misses;
     const stray = nearest(px, py);                 // désigner l'erreur aide à apprendre
     const why = stray >= 0 && !q.found.includes(stray)
@@ -1055,6 +1181,27 @@ Game.draw = ctx => {
   const q = Game.question;
   if (!q) return;
   if (reveal && !reveal.born) reveal.born = performance.now();
+
+  // coup de pouce : la ou les lignes de la station s'allument, puis un cercle se referme
+  const help = hints(q);
+  const lines = help ? net.stations[q.target][3] : [];
+  if (String(lines) !== String(spotlight)) {
+    spotlight = [...lines];
+    bgDirty = true;
+  }
+  if (help > 1) {
+    const u = Math.min(1, (elapsed(q) - HINTS[1].at) / (1 - HINTS[1].at));
+    const r = (1900 - 1200 * u) / mpp();           // de 1,9 km à 700 m
+    const st = net.stations[q.target];
+    ctx.save();
+    ctx.setLineDash([6, 6]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(40,40,40,.35)";
+    ctx.beginPath();
+    ctx.arc(sx(st[4][0]), sy(st[4][1]), r, 0, 6.2832);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   if (reveal && performance.now() > reveal.until) {
     Game.step++;
@@ -1244,7 +1391,7 @@ function dot(ctx, i, color, named, side = "right") {
   const x = sx(st[4][0]), y = sy(st[4][1]);
   ctx.beginPath();
   ctx.arc(x, y, (named ? 7 : 4.5) * bloom(), 0, 6.2832);
-  ctx.fillStyle = "#fff";
+  ctx.fillStyle = skin.station;
   ctx.fill();
   ctx.strokeStyle = color;
   ctx.lineWidth = named ? 3 : 2;
@@ -1255,7 +1402,7 @@ function dot(ctx, i, color, named, side = "right") {
   ctx.textAlign = side === "left" ? "right" : "left";
   const tx = side === "left" ? x - 11 : x + 11;
   ctx.lineWidth = 3.5;
-  ctx.strokeStyle = "rgba(255,255,255,.92)";
+  ctx.strokeStyle = skin.halo;
   ctx.strokeText(st[0], tx, y);
   ctx.fillStyle = color;
   ctx.fillText(st[0], tx, y);
@@ -1264,10 +1411,26 @@ function dot(ctx, i, color, named, side = "right") {
 
 /* ---------- ouverture et clôture ---------- */
 
+/* Une rame traverse l'écran à toute allure : le temps qu'elle passe, la carte bascule
+   en nuit et la première question est déjà prête derrière elle. */
+function trainIn(after) {
+  rush.hidden = false;
+  const rame = rush.firstElementChild;
+  rame.style.animation = "none";
+  rush.style.animation = "none";
+  void rame.offsetWidth;
+  rame.style.animation = "";
+  rush.style.animation = "";
+  setTimeout(() => { rush.hidden = true; }, 1000);
+  setTimeout(after, 520);                          // la question paraît quand elle est passée
+}
+
 function start() {
   document.body.classList.add("explored");
+  wear("nuit");                                    // la partie se joue de nuit
   Game.playing = true;
   Game.score = 0;
+  Game.streak = 0;
   shown = 0;
   Game.step = 0;
   Game.history = [];
@@ -1284,13 +1447,21 @@ function start() {
   hud.hidden = false;
   over.hidden = true;
   if (selected !== null) select(null);
+  showStreak();
   tally();
-  nextQuestion();
+  hud.hidden = true;
+  trainIn(() => {
+    if (!Game.playing) return;
+    hud.hidden = false;
+    nextQuestion();
+  });
   bgDirty = true;
 }
 
 function stop() {
+  wear("jour");
   showRecord();
+  if (spotlight.length) { spotlight = []; bgDirty = true; }
   Game.playing = false;
   Game.question = null;
   reveal = null;
@@ -1327,9 +1498,9 @@ function finish() {
   over.innerHTML = `
     <p class="grade">${grade.title}</p>
     <p class="note">${grade.note}</p>
-    <h2>${Game.score}</h2>
+    <h2>${Game.score.toLocaleString("fr-FR")}</h2>
     <p class="sub">${Math.round(rate * 100)} % de réussite · ${
-      record ? "nouveau record" : `record : ${best || "—"}`}</p>
+      record ? "nouveau record" : `record : ${best ? best.toLocaleString("fr-FR") : "—"}`}</p>
     <dl>
       <dt>stations visées</dt><dd>${shots.length}</dd>
       <dt>écart moyen</dt><dd>${avg !== null ? format(avg) : "—"}</dd>
@@ -1342,13 +1513,28 @@ function finish() {
       <dt>meilleur coup</dt><dd>${aimed.length
         ? aimed.reduce((a, b) => a.d < b.d ? a : b).name : "—"}</dd>
     </dl>
+    <p class="grid">${Game.history
+      .map(h => (v => v > 0.75 ? "🟩" : v > 0.25 ? "🟨" : "🟥")(success(h))).join("")}</p>
     <div class="actions">
       <button class="again">Rejouer</button>
       <button class="back">La carte</button>
+      <button class="share" title="Copier le résultat">⧉</button>
     </div>`;
   over.hidden = false;
   over.querySelector(".again").onclick = () => { over.hidden = true; start(); };
   over.querySelector(".back").onclick = () => { over.hidden = true; };
+  const copie = over.querySelector(".share");
+  copie.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(shareText(grade.title));
+      copie.textContent = "✓";
+      copie.classList.add("done");
+    } catch {
+      copie.textContent = "✕";                     // presse-papiers refusé par le navigateur
+    }
+    setTimeout(() => { copie.textContent = "⧉"; copie.classList.remove("done"); }, 1800);
+  };
+  if (record) confetti();
 }
 
 playBtn.disabled = true;

@@ -19,6 +19,7 @@ let active = [];           // courses en circulation à l'instant simulé
 let running = 0;           // total sur le réseau, filtres compris
 let visible = new Set();   // lignes affichées
 let hovered = -1;          // ligne sous le curseur
+let spotlight = [];        // lignes mises en avant par le jeu, en guise d'indice
 let lastMouse = null;
 
 const view = { x: 0, y: 0, scale: 1 };
@@ -30,6 +31,35 @@ let bounds = null;
 let selected = null;       // ligne isolée, ou null pour le réseau entier
 let anim = null;           // transition de cadrage en cours
 const stats = [];          // caractéristiques de chaque ligne, calculées une fois
+
+/* Deux habillages : la carte au repos est un plan de métro sur papier blanc ; dès qu'une
+   manche commence, tout bascule en nuit et les seize couleurs du réseau éclatent. */
+const SKINS = {
+  jour: {
+    ville: "#fbfbfb", bordVille: "#cfcfcf",
+    station: "#fff", contour: "rgba(90,90,90,.55)", noeud: "rgba(40,40,40,.8)",
+    texte: "#4a4a4a", halo: "rgba(255,255,255,.9)",
+    muet: "#2f2f2f",                               // réseau des questions de couleur
+    trace: l => pale(l, 0.82),
+    efface: l => pale(l, 0.24),
+  },
+  nuit: {
+    ville: "#191d26", bordVille: "#2f3542",
+    station: "#e9ecf4", contour: "rgba(150,158,180,.65)", noeud: "rgba(255,255,255,.9)",
+    texte: "#c9cedd", halo: "rgba(12,14,20,.85)",
+    muet: "#8b93a7",
+    trace: l => l,
+    efface: l => shade(l, 0.42),
+  },
+};
+let skin = SKINS.jour;
+
+/* Assombrit une couleur vers le fond de nuit. */
+function shade(hex, k) {
+  const n = parseInt(hex.slice(1), 16);
+  const mix = c => Math.round(c * k + 25 * (1 - k));
+  return `rgb(${mix(n >> 16 & 255)},${mix(n >> 8 & 255)},${mix(n & 255)})`;
+}
 
 /* Teinte adoucie pour les tracés : les rames, en couleur pleine, s'en détachent. */
 function pale(hex, k = 0.42) {
@@ -212,10 +242,10 @@ function drawBackground() {
       for (let i = 1; i < ring.length; i++) bgx.lineTo(sx(ring[i][0]), sy(ring[i][1]));
       bgx.closePath();
     }
-    bgx.fillStyle = "#fbfbfb";
+    bgx.fillStyle = skin.ville;
     bgx.fill();
     bgx.lineWidth = 1;
-    bgx.strokeStyle = "#cfcfcf";
+    bgx.strokeStyle = skin.bordVille;
     bgx.stroke();
   }
 
@@ -236,18 +266,19 @@ function drawBackground() {
   const blind = window.Game && Game.blind;
   const paint = i => {
     const l = net.lines[i];
-    const lit = i === hovered;
+    const lit = i === hovered || spotlight.includes(i);
     // en question de couleur, le survol aide à viser sans désigner de réponse
     bgx.lineWidth = lit ? lw * (blind ? 1.4 : 2.6) : lw;
-    bgx.strokeStyle = blind ? "#2f2f2f"
+    bgx.strokeStyle = blind ? skin.muet
                     : lit ? l[1]                       // la ligne visée en couleur pleine
                     : selected === i ? pale(l[1], 0.72)
-                    : hovered >= 0 ? pale(l[1], 0.24)  // les autres reculent
-                    : l[3];
+                    : (hovered >= 0 || spotlight.length) ? skin.efface(l[1])
+                    : skin.trace(l[1]);
     bgx.stroke(paths[i]);
   };
-  net.lines.forEach((_, i) => { if (visible.has(i) && i !== hovered) paint(i); });
-  if (hovered >= 0 && visible.has(hovered)) paint(hovered);   // au-dessus des autres
+  const front = i => i === hovered || spotlight.includes(i);
+  net.lines.forEach((_, i) => { if (visible.has(i) && !front(i)) paint(i); });
+  net.lines.forEach((_, i) => { if (visible.has(i) && front(i)) paint(i); });
   bgx.lineWidth = lw;
 
   if (blind) return;                              // question de couleur : tracés nus
@@ -256,7 +287,7 @@ function drawBackground() {
   // les stations sont désormais ce que la carte donne à voir : elles restent visibles
   // à toutes les échelles, plus grosses là où plusieurs lignes se croisent
   const r = Math.max(2, lw * 0.5);
-  bgx.fillStyle = "#fff";
+  bgx.fillStyle = skin.station;
   const labels = m < 8 && !hunt;
   if (labels) {
     bgx.font = "500 11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
@@ -265,15 +296,21 @@ function drawBackground() {
   for (const st of net.stations) {
     const shown = st[3].filter(l => visible.has(l));
     if (!shown.length) continue;
-    const lit = hovered >= 0 && st[3].includes(hovered);
+    const lit = (hovered >= 0 && st[3].includes(hovered)) ||
+                st[3].some(l => spotlight.includes(l));
     // en partie, toutes les stations se valent : distinguer les nœuds désignerait
     // les correspondances à trouver
     const node = shown.length > 1 && !hunt;
     const x = sx(st[4][0]), y = sy(st[4][1]);
     if (x < -40 || y < -40 || x > w + 40 || y > h + 40) continue;
     bgx.lineWidth = lit ? 2 : node ? 1.4 : 1;
-    bgx.strokeStyle = lit ? net.lines[hovered][1]
-                    : node ? "rgba(40,40,40,.8)" : "rgba(90,90,90,.55)";
+    // la ligne mise en avant peut venir du survol comme du jeu : on prend celle des deux
+    // qui concerne cette station, jamais un index vide
+    const par = hovered >= 0 && st[3].includes(hovered)
+      ? hovered : st[3].find(l => spotlight.includes(l));
+    bgx.strokeStyle = lit && par !== undefined ? net.lines[par][1]
+                    : node ? skin.noeud : skin.contour;
+    bgx.fillStyle = skin.station;
     bgx.beginPath();
     bgx.arc(x, y, lit ? Math.max(r * 1.9, 4.5) : node ? r * 1.35 : r, 0, 6.2832);
     bgx.fill();
@@ -308,6 +345,15 @@ function lineAt(px, py) {
     }
   });
   return best;
+}
+
+/* Bascule l'habillage de la carte entre jour et nuit. */
+function wear(name) {
+  if (skin === SKINS[name]) return;
+  skin = SKINS[name];
+  // la classe va sur <html> : c'est lui qui peint le fond de la page
+  document.documentElement.classList.toggle("nuit", name === "nuit");
+  bgDirty = true;
 }
 
 /* ---------- rames ---------- */
@@ -346,6 +392,15 @@ function frame(ts) {
 
   if (Math.abs(simTime - lastScan) > 0.6) scan(simTime);
   if (!framed && !fit()) { requestAnimationFrame(frame); return; }
+
+  // la carte est immobile la plupart du temps : inutile de la repeindre soixante fois
+  // par seconde. On ne redessine que si quelque chose l'exige vraiment.
+  const busy = bgDirty || anim || (window.Game && Game.playing);
+  if (!busy) {
+    clock2();                                      // l'en-tête suffit, une fois par seconde
+    requestAnimationFrame(frame);
+    return;
+  }
 
   if (anim) {                                      // recadrage progressif
     const u = Math.min(1, (ts - anim.start) / anim.dur);
@@ -483,6 +538,18 @@ function select(i, quiet) {
   }
   bgDirty = true;
   scan(simTime);
+}
+
+/* L'en-tête n'a besoin que d'une mise à jour par seconde. */
+let lastLabel = -1;
+function clock2() {
+  const t = Math.floor(simTime / 60);
+  if (t === lastLabel) return;
+  lastLabel = t;
+  const hh = String(Math.floor(simTime / 3600) % 24).padStart(2, "0");
+  const mm = String(t % 60).padStart(2, "0");
+  document.getElementById("status").textContent =
+    `${hh}:${mm} · ${net.stations.length} stations · ${net.lines.length} lignes`;
 }
 
 /* ---------- interface ---------- */

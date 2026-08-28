@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Métro de Paris — la chasse aux stations</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 <canvas id="map"></canvas>
@@ -39,18 +39,30 @@
   <div class="verdict" hidden></div>
   <div class="tally">
     <span class="score">0</span>
+    <span class="streak" hidden></span>
     <button class="quit">abandonner</button>
   </div>
 </div>
 
+<div id="party"></div>
 <div id="over" hidden></div>
 
 <aside id="panel" hidden></aside>
 
+<div id="rush" hidden>
+  <div class="rame">
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+</div>
+
+<div id="fx"></div>
+<div id="edge"></div>
+
 <div id="tooltip" hidden></div>
 
 
-<script src="app.js"></script>
-<script src="game.js"></script>
+<script src="app.js?v=11"></script>
+<script src="game.js?v=11"></script>
 </body>
 </html>

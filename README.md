@@ -84,6 +84,23 @@ tolérance suit le zoom pour qu'une réponse demande le même effort de près co
 combien il s'en est fallu. Chaque question est chronométrée, la barre du bandeau s'y vide,
 et une rangée de pastilles récapitule la manche question par question.
 
+La partie se joue **de nuit** : la carte au repos est un plan sur papier blanc, mais dès
+qu'une manche s'ouvre une rame traverse l'écran à toute allure et tout bascule — fond sombre,
+panneaux sombres, et les seize couleurs du réseau qui éclatent. Le retour au blanc marque la
+fin de la manche.
+
+Trois bonnes réponses d'affilée et les points passent à ×1,5, puis ×2, et ×3 à huit
+d'affilée ; une erreur remet la série à zéro. Les points gagnés s'envolent de l'endroit visé,
+un liseré vert ou rouge balaie les bords, la carte tremble sur une erreur et le téléphone
+vibre. En fin de manche, un record déclenche des confettis aux couleurs du réseau, et le
+résultat se copie en douze carrés :
+
+```
+La chasse aux stations · 11 233 pts
+Usager du quotidien
+🟥🟩🟩🟩🟩🟩🟥🟥🟥🟩🟥🟩
+```
+
 Le passage d'une question à l'autre est animé : le bandeau rejoue son entrée, le total
 grimpe vers sa nouvelle valeur plutôt que d'y sauter, la pastille de progression se gonfle
 en se colorant, et les repères de la correction éclosent sur la carte.
@@ -144,6 +161,18 @@ course ne pèse alors que trois entiers : pattern, profil, heure de départ.
 
 Le jeu de données GTFS couvre environ un mois. Passé cette période, il faut le régénérer.
 
+## Une note sur le rendu
+
+La carte est immobile la plupart du temps. Plutôt que de la repeindre soixante fois par
+seconde, la boucle ne redessine que lorsqu'une raison l'exige : une partie en cours, un
+recadrage, un survol, un changement d'habillage. Le reste du temps, seule l'heure de
+l'en-tête se rafraîchit, une fois par minute. Le gain est net — de 8 à 120 images par
+seconde au repos.
+
+Les fichiers portent un numéro de version dans leur adresse (`app.js?v=11`). Sans lui, un
+visiteur peut charger un script neuf avec un autre resté en cache et se retrouver avec une
+page cassée : les deux fichiers se répondent.
+
 ## Publier
 
 Le site est entièrement statique : aucun serveur, aucune base, aucune clé. N'importe quel
@@ -175,7 +204,7 @@ la question, sans intervention et sans coût.
 | `index.html` | structure de la page |
 | `style.css` | mise en forme |
 | `app.js` | projection, décodage des tracés, rendu de la carte, interactions, fiches de ligne |
-| `game.js` | la chasse aux stations : questions, notation, titres |
+| `game.js` | la chasse aux stations : questions, notation, titres, effets |
 | `tools/build_data.py` | extraction du GTFS vers `data/` |
 | `tools/fetch_paris.py` | limites de la ville, arrondissements, rattachement des stations |
 
