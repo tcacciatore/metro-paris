@@ -880,7 +880,14 @@ body.playing > header { display: none; }
   cursor: pointer;
 }
 #album:hover { border-color: var(--ink); color: var(--ink); }
-body.explored #album { display: none; }
+
+/* replié dans le coin, le bouton reste accessible : sans lui, la collection
+   deviendrait inatteignable dès la première partie jouée */
+body.explored #album {
+  margin-top: 6px;
+  padding: 4px 11px;
+  font-size: 10px;
+}
 
 #album-vue {
   position: fixed;
