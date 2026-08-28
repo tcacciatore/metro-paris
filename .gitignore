@@ -1,0 +1,5 @@
+# archive GTFS de travail : 135 Mo, retéléchargée à la demande
+IDFM-gtfs.zip
+*.zip
+
+.DS_Store

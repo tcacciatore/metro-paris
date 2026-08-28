@@ -1,0 +1,41 @@
+# Le GTFS d'Île-de-France Mobilités ne couvre qu'un mois glissant : passé sa période,
+# les fiches de ligne donnent des horaires faux. Ce travail le régénère tous les 15 jours
+# et pousse le résultat, ce qui déclenche le déploiement.
+name: Rafraîchir les données
+
+on:
+  schedule:
+    - cron: "0 4 1,15 * *"      # le 1er et le 15 de chaque mois, à 4 h UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  regenerer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Télécharger le GTFS (environ 135 Mo)
+        run: curl -sSfL --retry 3 -o IDFM-gtfs.zip
+             https://eu.ftp.opendatasoft.com/stif/GTFS/IDFM-gtfs.zip
+
+      - name: Reconstruire le réseau et les journées
+        run: python3 tools/build_data.py IDFM-gtfs.zip
+
+      - name: Rattacher les stations aux arrondissements
+        run: python3 tools/fetch_paris.py
+
+      - name: Pousser si quelque chose a changé
+        run: |
+          rm -f IDFM-gtfs.zip
+          if git diff --quiet -- data/; then
+            echo "Les données sont déjà à jour."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git commit -m "Données GTFS du $(date +%d/%m/%Y)"
+          git push

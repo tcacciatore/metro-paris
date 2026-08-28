@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Métro de Paris — la chasse aux stations</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="map"></canvas>
+
+<div id="loader">Chargement du réseau…</div>
+
+<header>
+  <h1>Métro de Paris</h1>
+  <p id="status">—</p>
+  <p id="credit">horaires <a href="https://prim.iledefrance-mobilites.fr/">Île-de-France Mobilités</a> · GTFS</p>
+</header>
+
+<div id="start">
+  <div class="rainbow"></div>
+  <h2>La chasse aux stations</h2>
+  <button id="play"><span class="tri"></span>Jouer</button>
+  <p id="record"></p>
+</div>
+
+<div id="hud" hidden>
+  <div class="quest">
+    <div class="pips"></div>
+    <span class="step"></span>
+    <span class="ask">Trouve <b></b></span>
+  </div>
+  <div class="clock"><i></i></div>
+  <div class="choices" hidden></div>
+  <form class="reply" hidden><input type="text" autocomplete="off"
+    spellcheck="false" placeholder="n° d'arrondissement"></form>
+  <div class="verdict" hidden></div>
+  <div class="tally">
+    <span class="score">0</span>
+    <button class="quit">abandonner</button>
+  </div>
+</div>
+
+<div id="over" hidden></div>
+
+<aside id="panel" hidden></aside>
+
+<div id="tooltip" hidden></div>
+
+
+<script src="app.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
