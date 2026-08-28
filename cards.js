@@ -241,9 +241,12 @@ Cards.album = () => {
   albumVue.querySelector(".grille").onclick = e => {
     const jeton = e.target.closest(".jeton.eue");
     if (!jeton) return;
+    // la loupe est attachée au corps de la page, pas à l'album : le backdrop-filter de
+    // celui-ci fait de lui la référence des positions fixes, et la carte suivrait alors
+    // le défilement au lieu de rester au centre de l'écran
     const loupe = document.createElement("div");
     loupe.className = "loupe";
-    albumVue.appendChild(loupe);
+    document.body.appendChild(loupe);
     Cards.poser(loupe, +jeton.dataset.i, jeton.dataset.chrome === "1");
     loupe.onclick = () => loupe.remove();
   };

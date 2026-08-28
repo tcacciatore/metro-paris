@@ -44,14 +44,34 @@ const BEST_KEY = "metro-chasse-record-20";
 
 /* Titres décernés en fin de manche, du meilleur au plus modeste. */
 const GRADES = [
-  { min: 0.92, title: "Titi parisien", note: "vous êtes né dans un couloir de correspondance" },
-  { min: 0.80, title: "Poinçonneur des Lilas", note: "des p'tits trous, toujours des p'tits trous" },
-  { min: 0.66, title: "Habitué du réseau", note: "vous savez dans quelle voiture monter" },
-  { min: 0.50, title: "Usager du quotidien", note: "votre ligne, et deux ou trois autres" },
-  { min: 0.34, title: "Passager du dimanche", note: "vous consultez le plan, mais discrètement" },
-  { min: 0.18, title: "Banlieusard égaré", note: "toujours du bon côté du quai, jamais du bon quai" },
-  { min: 0,    title: "Touriste", note: "le plan à l'envers, mais l'air ravi" },
+  { min: 0.92, cle: "titi",       tete: "🤌", title: "Titi parisien",
+    note: "vous êtes né dans un couloir de correspondance" },
+  { min: 0.80, cle: "poinconneur", tete: "😎", title: "Poinçonneur des Lilas",
+    note: "des p'tits trous, toujours des p'tits trous" },
+  { min: 0.66, cle: "habitue",    tete: "🙂", title: "Habitué du réseau",
+    note: "vous savez dans quelle voiture monter" },
+  { min: 0.50, cle: "usager",     tete: "😐", title: "Usager du quotidien",
+    note: "votre ligne, et deux ou trois autres" },
+  { min: 0.34, cle: "dimanche",   tete: "😅", title: "Passager du dimanche",
+    note: "vous consultez le plan, mais discrètement" },
+  { min: 0.18, cle: "egare",      tete: "😬", title: "Banlieusard égaré",
+    note: "toujours du bon côté du quai, jamais du bon quai" },
+  { min: 0,    cle: "touriste",   tete: "🧳", title: "Touriste",
+    note: "le plan à l'envers, mais l'air ravi" },
 ];
+
+/* La réaction de fin de partie, dans les codes du meme : une image barrée d'un texte en
+   capitales. Par défaut une frimousse dessinée sur place ; si un fichier memes/<grade>.gif
+   existe, il la remplace. Rien n'est embarqué : à chacun d'y mettre ce qu'il veut. */
+const CRIS = {
+  titi: "Ah ouais quand même",
+  poinconneur: "T'as du niveau ça va",
+  habitue: "Tranquille Émile",
+  usager: "Merde c'est quelle station après ?",
+  dimanche: "Maman attends !…",
+  egare: "C'est par où la gare Saint-Lazare ?",
+  touriste: "Excuse me, where is le métro",
+};
 
 /* Devinettes sur les noms eux-mêmes. Chaque thème se résout contre les vrais noms du
    réseau au chargement : aucune réponse n'est écrite à la main, donc aucune ne ment. */
@@ -1732,6 +1752,11 @@ function finish() {
 
   stop();
   over.innerHTML = `
+    <figure class="reaction" data-cle="${grade.cle}">
+      <span class="tete">${grade.tete}</span>
+      <figcaption class="${CRIS[grade.cle].length > 24 ? "longue" : ""}"
+        >${CRIS[grade.cle]}</figcaption>
+    </figure>
     <p class="grade">${grade.title}</p>
     <p class="note">${grade.note}</p>
     <h2>${Game.score.toLocaleString("fr-FR")}</h2>
@@ -1758,6 +1783,15 @@ function finish() {
     </div>
     <div class="butin" hidden></div>`;
   over.hidden = false;
+  // si l'on a déposé un gif pour ce grade, il prend la place de la frimousse
+  const vignette = over.querySelector(".reaction");
+  const gif = new Image();
+  gif.onload = () => {
+    vignette.querySelector(".tete").replaceWith(gif);
+    gif.className = "gif";
+  };
+  gif.src = `memes/${grade.cle}.gif`;
+
   over.querySelector(".again").onclick = () => { over.hidden = true; start(); };
   over.querySelector(".back").onclick = () => { over.hidden = true; };
   const copie = over.querySelector(".share");

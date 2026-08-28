@@ -1006,14 +1006,14 @@ body.explored #album {
 .jeton.eue.epique  { border-left: 3px solid #f59e0b; }
 .jeton.eue.legende { border-left: 3px solid #ef4444; }
 
-/* la carte agrandie */
-#album-vue .loupe {
+/* la carte agrandie, au centre de l'écran quel que soit le défilement de l'album */
+.loupe {
   position: fixed;
   inset: 0;
   display: grid;
   place-content: center;
-  background: rgba(8, 10, 14, .8);
-  z-index: 5;
+  background: rgba(8, 10, 14, .82);
+  z-index: 40;
 }
 
 /* ---------- les cartes chromées ---------- */
@@ -1103,4 +1103,72 @@ body.explored #album {
   font-weight: 700;
   letter-spacing: .06em;
   animation: brille 1.6s ease-in-out infinite;
+}
+
+/* ---------- la réaction de fin de partie ---------- */
+
+#over .reaction {
+  position: relative;
+  margin: 0 0 14px;
+  padding: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #2b3140, #171a22);
+  animation: entree .5s cubic-bezier(.2, .8, .3, 1.3) backwards;
+}
+
+@keyframes entree {
+  from { opacity: 0; transform: scale(.7) rotate(-6deg); }
+  to { opacity: 1; transform: none; }
+}
+
+#over .reaction .tete {
+  display: block;
+  padding: 14px 0 6px;
+  font-size: 62px;
+  line-height: 1;
+  animation: sursaut 2.4s ease-in-out infinite;
+}
+
+@keyframes sursaut {
+  0%, 62%, 100% { transform: none; }
+  70% { transform: translateY(-7px) rotate(-5deg); }
+  80% { transform: translateY(-2px) rotate(4deg); }
+}
+
+#over .reaction .gif {
+  display: block;
+  width: 100%;
+  max-height: 190px;
+  object-fit: cover;
+}
+
+/* le bandeau en capitales, dans les codes du genre */
+#over .reaction figcaption {
+  padding: 6px 8px 10px;
+  font-family: Impact, "Haettenschweiler", "Arial Narrow Bold", sans-serif;
+  font-size: 21px;
+  line-height: 1.1;
+  letter-spacing: .02em;
+  color: #fff;
+  text-transform: uppercase;
+  -webkit-text-stroke: 1.4px #000;
+  paint-order: stroke fill;
+  text-shadow: 0 2px 5px rgba(0, 0, 0, .6);
+}
+
+/* une réplique bavarde se resserre plutôt que de manger l'image */
+#over .reaction figcaption.longue {
+  font-size: 17px;
+  line-height: 1.05;
+  -webkit-text-stroke-width: 1.2px;
+}
+
+/* quand un gif occupe le cadre, la légende passe par-dessus, en bas */
+#over .reaction:has(.gif) figcaption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding-bottom: 8px;
 }
