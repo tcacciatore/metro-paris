@@ -328,6 +328,10 @@ body.explored #start h2 {
 #hud .clock.urgent i { background: #b3261e; }
 #hud .clock.done i { background: var(--muted); }
 
+/* un display explicite l'emporte sur la règle par défaut de l'attribut hidden :
+   il faut la rétablir, sinon ces blocs ne se cachent jamais */
+#hud .choices[hidden], #hud .reply[hidden] { display: none; }
+
 #hud .choices {
   display: grid;
   gap: 5px;
@@ -356,20 +360,40 @@ body.explored #start h2 {
 }
 #hud .choices button:disabled { cursor: default; }
 
-#hud .reply { margin-top: 10px; }
+/* Le clavier numérique d'iOS n'offre aucune touche de validation : il faut un bouton. */
+#hud .reply {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
 #hud .reply input {
-  width: 100%;
-  padding: 8px 11px;
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
   border: 1px solid var(--hair);
   border-radius: 18px;
   background: #fff;
   font: inherit;
-  font-size: 13px;
+  font-size: 16px;          /* en deçà, iOS zoome à la mise au point */
   color: var(--ink);
   text-align: center;
   outline: none;
 }
 #hud .reply input:focus { border-color: var(--ink); }
+
+#hud .reply button {
+  flex: none;
+  width: 42px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--ink);
+  color: #fff;
+  font: 600 16px/1 inherit;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+#hud .reply button:hover { opacity: .85; }
+#hud .reply button:active { opacity: .7; }
 
 #hud .verdict {
   animation: swap .3s ease-out;

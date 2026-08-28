@@ -112,7 +112,7 @@ function openField(hint = "n° d'arrondissement", digits = true) {
   field.maxLength = digits ? 5 : 48;
   field.inputMode = digits ? "numeric" : "text";
   replay(reply);
-  setTimeout(() => field.focus(), 30);
+  setTimeout(() => { if (!reply.hidden) field.focus(); }, 30);
 }
 
 function hideInputs() {
@@ -148,6 +148,7 @@ reply.addEventListener("submit", e => {
   }
   tally();
   if (q.found.length >= q.need || q.misses >= 3) closeWards();
+  else field.focus();                              // enchaîner sans refermer le clavier
 });
 
 /* Réponse à une devinette de nom. */
@@ -170,6 +171,7 @@ function answerTheme(q) {
   }
   tally();
   if (q.found.length >= q.need || q.misses >= 3) closeTheme();
+  else field.focus();
 }
 
 function closeTheme() {
@@ -412,6 +414,31 @@ function apart(a, b) {
   return Math.hypot((p[1] - q[1]) * 1.5, p[2] - q[2]);
 }
 
+/* Emprise d'un ensemble d'anneaux. */
+function ringsBounds(rings) {
+  let minX = 1, minY = 1, maxX = 0, maxY = 0;
+  for (const ring of rings) {
+    for (const [x, y] of ring) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/* Élargit une emprise et déplace un peu son centre : on se rapproche assez pour viser
+   confortablement, sans que le cadrage ne pointe du doigt la zone cherchée. */
+function loosely(box, factor, jitter = 0.5) {
+  const cx = (box.minX + box.maxX) / 2, cy = (box.minY + box.maxY) / 2;
+  const w = (box.maxX - box.minX) * factor / 2;
+  const h = (box.maxY - box.minY) * factor / 2;
+  const dx = (Math.random() - 0.5) * w * jitter;
+  const dy = (Math.random() - 0.5) * h * jitter;
+  return { minX: cx + dx - w, maxX: cx + dx + w, minY: cy + dy - h, maxY: cy + dy + h };
+}
+
 /* Distance entre deux stations, en kilomètres : un degré de longitude vaut 73,2 km à la
    latitude de Paris, et `apart` compte justement en unités de longitude. */
 const km = (a, b) => apart(a, b) * 73.2;
@@ -507,7 +534,7 @@ function nextQuestion() {
       Game.line = pickLine(Game.step, kind);
       select(Game.line, true);
     }
-  } else if (Game.line !== null) {
+  } else if (selected !== null) {                  // on se fie à l'état de la carte
     Game.line = null;
     select(null, true);
   }
@@ -749,6 +776,9 @@ function nextQuestion() {
       misses: 0,
     };
     ask(`3 stations dans le <b>${ordinal(d.n)}</b>`, true);
+    // on se rapproche d'un quartier trois fois plus large que l'arrondissement, et
+    // décentré : les stations deviennent de vraies cibles, la zone reste à deviner
+    flyTo(frameTo(loosely(ringsBounds(d.rings), 3.2), 0.95, 0, fitScale * 6));
   } else {
     const i = pickStation(Game.step);
     asked.add(i);
