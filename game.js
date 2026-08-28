@@ -373,8 +373,36 @@ function setMode(cle) {
   showRecord();
 }
 
-/* L'image qui illustre le mode choisi. Comme pour les fins de partie : une frimousse
-   par défaut, remplacée par memes/mode-<mode>.gif s'il existe. */
+/* Pose une illustration dans un cadre. On cherche d'abord une vidéo : Safari sur iPhone
+   refuse d'animer une image dont le décodage dépasse une douzaine de mégaoctets en
+   mémoire — largeur × hauteur × nombre d'images — et se contente alors d'afficher la
+   première. Une vidéo muette échappe à cette limite, et pèse dix à quarante fois moins.
+   À défaut, on retombe sur le gif, puis sur la frimousse déjà en place. */
+function illustre(cadre, nom, valide) {
+  const film = document.createElement("video");
+  film.muted = true;                               // sans quoi iOS refuse la lecture seule
+  film.loop = true;
+  film.autoplay = true;
+  film.playsInline = true;
+  film.className = "gif";
+
+  const poser = element => {
+    if (!valide()) return;                         // le contexte a changé entre-temps
+    cadre.innerHTML = "";
+    cadre.appendChild(element);
+  };
+
+  film.oncanplay = () => { poser(film); film.play().catch(() => {}); };
+  film.onerror = () => {
+    const gif = new Image();
+    gif.className = "gif";
+    gif.onload = () => poser(gif);
+    gif.src = `memes/${nom}.gif`;
+  };
+  film.src = `memes/${nom}.mp4`;
+}
+
+/* L'illustration du mode choisi. */
 const cadre = document.getElementById("vitrine");
 function vitrine() {
   const m = MODES[Game.mode];
@@ -383,15 +411,8 @@ function vitrine() {
   void cadre.offsetWidth;
   cadre.classList.add("anime");
 
-  const gif = new Image();
-  gif.onload = () => {
-    if (Game.mode !== cle) return;                 // le mode a changé entre-temps
-    cadre.innerHTML = "";
-    gif.className = "gif";
-    cadre.appendChild(gif);
-  };
   const cle = Game.mode;
-  gif.src = `memes/mode-${cle}.gif`;
+  illustre(cadre, `mode-${cle}`, () => Game.mode === cle);
 }
 
 document.querySelectorAll("#modes button").forEach(b => {
@@ -1845,14 +1866,15 @@ function finish() {
     </div>
     <div class="butin" hidden></div>`;
   over.hidden = false;
-  // si l'on a déposé un gif pour ce grade, il prend la place de la frimousse
+  // la réaction du grade, vidéo de préférence
   const vignette = over.querySelector(".reaction");
-  const gif = new Image();
-  gif.onload = () => {
-    vignette.querySelector(".tete").replaceWith(gif);
-    gif.className = "gif";
-  };
-  gif.src = `memes/${grade.cle}.gif`;
+  const legende = vignette.querySelector("figcaption");
+  illustre(vignette, grade.cle, () => true);
+  const veille = new MutationObserver(() => {
+    if (!vignette.contains(legende)) vignette.appendChild(legende);
+  });
+  veille.observe(vignette, { childList: true });
+  setTimeout(() => veille.disconnect(), 4000);
 
   over.querySelector(".again").onclick = () => { over.hidden = true; start(); };
   over.querySelector(".back").onclick = () => { over.hidden = true; };

@@ -26,6 +26,23 @@ Ils changent quand on bascule de l'un à l'autre.
 
 Le cadre y fait 342 × 130 pixels : un format large convient mieux qu'un carré.
 
+## Pourquoi des vidéos à côté des gif
+
+Safari sur iPhone refuse d'animer une image dont le décodage dépasse une douzaine de
+mégaoctets en mémoire — soit largeur × hauteur × nombre d'images, indépendamment du poids
+du fichier. Il affiche alors la première image, figée. Six de nos neuf gif dépassaient ce
+seuil.
+
+Chaque `.gif` est donc accompagné d'un `.mp4` produit par :
+
+```bash
+ffmpeg -i fichier.gif -movflags faststart -pix_fmt yuv420p -an \
+  -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -crf 28 fichier.mp4
+```
+
+La page charge la vidéo en priorité et retombe sur le gif si elle manque. Si vous ajoutez
+un gif, pensez à générer le mp4 qui va avec — sinon il restera figé sur iPhone.
+
 ## En général
 
 Aucun fichier n'est obligatoire : sans lui, la frimousse reste, sans erreur ni message.
