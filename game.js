@@ -19,6 +19,13 @@ const MODES = {
     nom: "Parisien", tete: "🥖", questions: 20, temps: 0.8, visee: 0.65,
     aides: null, depart: 0.3, pente: 0.7,
   },
+  /* La grille du jour : une manche courte, de difficulté moyenne, identique pour tous
+     et jouable une fois par jour. Le sceau la distingue des deux autres — c'est lui qui
+     fige le hasard sur la date et qui enregistre le résultat. */
+  quotidien: {
+    nom: "Du jour", tete: "📅", questions: 10, temps: 1.1, visee: 1.1,
+    aides: [0.3, 0.52, 0.7], depart: 0.15, pente: 0.6, sceau: true,
+  },
 };
 
 const MODE_CHOISI = "metro-mode";
@@ -279,7 +286,51 @@ function showChoices(options, onPick) {
   replay(choices);
 }
 
-const shuffle = a => a.map(v => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map(p => p[1]);
+/* Hasard reproductible. Une partie ordinaire tire au sort à chaque fois ; la grille du
+   jour, elle, doit poser les mêmes questions à tout le monde. On remplace alors la source
+   d'aléa par une suite déterministe semée par la date : même graine, même manche, partout
+   et sans serveur. Toute la fabrication des questions puise ici — les confettis, eux,
+   gardent le droit de tomber n'importe comment. */
+let alea = Math.random;
+
+/* Suite de Mulberry32 : trente-deux bits d'état, une qualité largement suffisante pour
+   distribuer des stations, et le même résultat sur tous les navigateurs. */
+const semer = graine => {
+  let a = graine >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+/* Empreinte FNV-1a : transforme la date en graine. */
+const empreinte = texte => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < texte.length; i++) {
+    h ^= texte.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+};
+
+/* Le jour courant, en heure locale — la grille change à minuit chez le joueur. */
+const jourNom = (d = new Date()) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
+    String(d.getDate()).padStart(2, "0")}`;
+
+const JOUR_CLE = "metro-jour";
+
+/* Le résultat de la grille du jour, s'il a déjà été joué aujourd'hui. */
+function jourFait() {
+  try {
+    const brut = JSON.parse(localStorage.getItem(JOUR_CLE) || "null");
+    return brut && brut.date === jourNom() ? brut : null;
+  } catch { return null; }                          // stockage indisponible
+}
+
+const shuffle = a => a.map(v => [alea(), v]).sort((x, y) => x[0] - y[0]).map(p => p[1]);
 
 /* ---------- préparation ---------- */
 
@@ -355,6 +406,13 @@ addEventListener("metro:ready", () => {
 });
 
 function showRecord() {
+  if (MODES[Game.mode].sceau) {                    // la grille du jour n'a pas de record
+    const fait = jourFait();
+    recordLine.textContent = fait
+      ? `déjà jouée · ${fait.score.toLocaleString("fr-FR")} pts`
+      : `grille du ${new Date().toLocaleDateString("fr-FR")} · ${ROUNDS} questions`;
+    return;
+  }
   let best = 0;
   try { best = +(localStorage.getItem(bestKey()) || 0); } catch { /* stockage indisponible */ }
   recordLine.textContent = best
@@ -497,7 +555,7 @@ function window_(list, step, width = 0.45) {
 
 function graded(list, step, width = 0.45) {
   const slice = window_(list, step, width);
-  return slice.length ? slice[Math.floor(Math.random() * slice.length)] : null;
+  return slice.length ? slice[Math.floor(alea() * slice.length)] : null;
 }
 
 /* Les stations les plus fréquentées d'abord, les plus discrètes pour finir. */
@@ -533,11 +591,11 @@ const swatch = i =>
 function buildRound() {
   // une forme accessible pour ouvrir, le reste dans un désordre complet ; comme il y a
   // plus de formes que de questions, chaque partie en laisse une ou deux de côté
-  const opener = OPENERS[Math.floor(Math.random() * OPENERS.length)];
+  const opener = OPENERS[Math.floor(alea() * OPENERS.length)];
   const picks = [opener, ...shuffle(KINDS.filter(k => k !== opener))];
   // KINDS et ROUNDS ont la même taille : toutes les formes passent, aucune ne se répète
   while (picks.length < ROUNDS) {
-    picks.push(FILLERS[Math.floor(Math.random() * FILLERS.length)]);
+    picks.push(FILLERS[Math.floor(alea() * FILLERS.length)]);
   }
   picks.length = ROUNDS;
   return picks;
@@ -555,8 +613,8 @@ function apart(a, b) {
 function around(i, km) {
   const st = net.stations[i];
   const half = km * 1000 / M_PER_WORLD / 2;
-  const jx = (Math.random() - 0.5) * half;
-  const jy = (Math.random() - 0.5) * half;
+  const jx = (alea() - 0.5) * half;
+  const jy = (alea() - 0.5) * half;
   return {
     minX: st[4][0] + jx - half, maxX: st[4][0] + jx + half,
     minY: st[4][1] + jy - half, maxY: st[4][1] + jy + half,
@@ -583,8 +641,8 @@ function loosely(box, factor, jitter = 0.5) {
   const cx = (box.minX + box.maxX) / 2, cy = (box.minY + box.maxY) / 2;
   const w = (box.maxX - box.minX) * factor / 2;
   const h = (box.maxY - box.minY) * factor / 2;
-  const dx = (Math.random() - 0.5) * w * jitter;
-  const dy = (Math.random() - 0.5) * h * jitter;
+  const dx = (alea() - 0.5) * w * jitter;
+  const dy = (alea() - 0.5) * h * jitter;
   return { minX: cx + dx - w, maxX: cx + dx + w, minY: cy + dy - h, maxY: cy + dy + h };
 }
 
@@ -657,14 +715,14 @@ function impostor() {
 
   for (let essai = 0; essai < 90; essai++) {
     let nom;
-    if (Math.random() < 0.5 && generiques.length > 1) {
-      const a = generiques[Math.floor(Math.random() * generiques.length)];
-      const b = generiques[Math.floor(Math.random() * generiques.length)];
+    if (alea() < 0.5 && generiques.length > 1) {
+      const a = generiques[Math.floor(alea() * generiques.length)];
+      const b = generiques[Math.floor(alea() * generiques.length)];
       if (a === b || !b.suite) continue;
       nom = elide(a.mot, b.art, b.suite);
     } else {
-      const a = composes[Math.floor(Math.random() * composes.length)];
-      const b = composes[Math.floor(Math.random() * composes.length)];
+      const a = composes[Math.floor(alea() * composes.length)];
+      const b = composes[Math.floor(alea() * composes.length)];
       if (!a || !b || a === b) continue;
       nom = `${a.tete} - ${b.queue}`;
     }
@@ -692,7 +750,7 @@ function nextChoice() {
   const q = Game.question;
   const pool = byLine[q.line].filter(i => !q.seen.includes(i));
   if (!pool.length) return closeName();
-  const right = pool[Math.floor(Math.random() * pool.length)];
+  const right = pool[Math.floor(alea() * pool.length)];
   q.seen.push(right);
 
   const rank = fame.indexOf(right);
@@ -748,7 +806,7 @@ function pickLine(step, kind) {
   }
   const pool = net.lines.map((_, i) => i)
     .filter(i => byLine[i].length >= 15 && i !== Game.line);
-  return pool[Math.floor(Math.random() * pool.length)] ?? 0;
+  return pool[Math.floor(alea() * pool.length)] ?? 0;
 }
 
 function nextQuestion() {
@@ -779,7 +837,7 @@ function nextQuestion() {
   Game.lastKind = kind;
 
   if (kind === "landmark") {
-    const [lieu, lat, lon] = LANDMARKS[Math.floor(Math.random() * LANDMARKS.length)];
+    const [lieu, lat, lon] = LANDMARKS[Math.floor(alea() * LANDMARKS.length)];
     const proches = nearestTo(lat, lon);
     const bonne = proches[0].i;
     // les intruses viennent du voisinage : assez près pour hésiter, jamais les plus
@@ -844,7 +902,7 @@ function nextQuestion() {
     // on tire beaucoup de triplets, puis on choisit selon l'écart entre la paire la plus
     // longue et sa suivante : net, la réponse saute aux yeux ; serré, il faut mesurer
     const pool = fame.slice(0, 220);
-    const pick = () => pool[Math.floor(Math.random() * pool.length)];
+    const pick = () => pool[Math.floor(alea() * pool.length)];
     const draws = [];
     for (let n = 0; n < 240; n++) {
       const pairs = [];
@@ -968,7 +1026,7 @@ function nextQuestion() {
     if (at > 0) decoys.push(stops[at - 1]);
     const spare = stops.filter((v, i) => Math.abs(i - at) > 1 && v !== target);
     while (decoys.length < 2 && spare.length) {
-      const other = spare.splice(Math.floor(Math.random() * spare.length), 1)[0];
+      const other = spare.splice(Math.floor(alea() * spare.length), 1)[0];
       if (!decoys.includes(other)) decoys.push(other);
     }
 
@@ -1050,7 +1108,7 @@ function nextQuestion() {
   } else if (kind === "spot") {
     const pool = byLine[Game.line].filter(i => !asked.has(i));
     const i = (pool.length ? pool : byLine[Game.line])[
-      Math.floor(Math.random() * (pool.length || byLine[Game.line].length))];
+      Math.floor(alea() * (pool.length || byLine[Game.line].length))];
     asked.add(i);
     Game.question = { kind: "spot", target: i, line: Game.line };
     ask(`${pill(Game.line)} <b>${net.stations[i][0]}</b>`, false, "Situe");
@@ -1124,7 +1182,10 @@ function shareText(grade) {
   const grid = Game.history
     .map(h => (v => v > 0.75 ? "🟩" : v > 0.25 ? "🟨" : "🟥")(success(h)))
     .join("");
-  return `La chasse aux stations · mode ${MODES[Game.mode].nom.toLowerCase()}\n` +
+  const entete = MODES[Game.mode].sceau
+    ? `grille du ${new Date().toLocaleDateString("fr-FR")}`
+    : `mode ${MODES[Game.mode].nom.toLowerCase()}`;
+  return `La chasse aux stations · ${entete}\n` +
          `${Game.score} pts · ${grade}\n${grid}\n` + location.href.split(/[?#]/)[0];
 }
 
@@ -1758,6 +1819,9 @@ function trainIn(after) {
 }
 
 function start() {
+  // le mode du jour rejoue toujours la même manche : le hasard est semé par la date,
+  // si bien que deux joueurs à l'autre bout de Paris tombent sur les mêmes questions
+  alea = MODES[Game.mode].sceau ? semer(empreinte(`chasse ${jourNom()}`)) : Math.random;
   document.body.classList.add("explored");
   wear("nuit");                                    // la partie se joue de nuit
   Game.playing = true;
@@ -1824,14 +1888,25 @@ function finish() {
   const spotted = zones.reduce((s, h) => s + h.hits, 0);
   const wanted = zones.reduce((s, h) => s + h.need, 0);
 
+  // une grille du jour ne compte qu'une fois : la revanche se joue, mais ne s'inscrit pas
+  const sceau = MODES[Game.mode].sceau;
+  const revanche = sceau ? jourFait() : null;
+
   let best = 0;
   try { best = +(localStorage.getItem(bestKey()) || 0); } catch { /* stockage indisponible */ }
-  const record = Game.score > best;
+  const record = Game.score > best && !revanche;
   if (record) { try { localStorage.setItem(bestKey(), Game.score); } catch { /* ignoré */ } }
 
   const rate = done.length
     ? done.reduce((s, h) => s + success(h), 0) / done.length : 0;
   const grade = GRADES.find(g => rate >= g.min) || GRADES[GRADES.length - 1];
+
+  if (sceau && !revanche) {
+    try {
+      localStorage.setItem(JOUR_CLE, JSON.stringify(
+        { date: jourNom(), score: Game.score, grade: grade.title }));
+    } catch { /* ignoré */ }
+  }
 
   stop();
   over.innerHTML = `
@@ -1844,7 +1919,12 @@ function finish() {
     <p class="note">${grade.note}</p>
     <h2>${Game.score.toLocaleString("fr-FR")}</h2>
     <p class="sub">${Math.round(rate * 100)} % de réussite · ${
-      record ? "nouveau record" : `record : ${best ? best.toLocaleString("fr-FR") : "—"}`}</p>
+      sceau
+        ? (revanche
+            ? `revanche · le résultat du jour reste ${revanche.score.toLocaleString("fr-FR")}`
+            : "résultat du jour enregistré")
+        : record ? "nouveau record"
+                 : `record : ${best ? best.toLocaleString("fr-FR") : "—"}`}</p>
     <dl>
       <dt>stations visées</dt><dd>${shots.length}</dd>
       <dt>écart moyen</dt><dd>${avg !== null ? format(avg) : "—"}</dd>

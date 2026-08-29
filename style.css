@@ -1188,12 +1188,13 @@ body.explored #album {
 }
 #modes button {
   flex: 1;
-  padding: 9px 15px;
+  padding: 9px 6px;                                /* trois segments à loger, pas deux */
   border: 0;
   border-radius: 17px;
   background: none;
   color: var(--muted);
-  font: 600 15px/1 inherit;
+  font: 600 14px/1 inherit;
+  white-space: nowrap;
   cursor: pointer;
   transition: background .15s, color .15s;
 }
