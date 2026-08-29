@@ -12,11 +12,11 @@ let ROUNDS = 20;
    les stations que tout le monde connaît, un parisien va chercher les plus discrètes. */
 const MODES = {
   provincial: {
-    nom: "Provincial", tete: "🌻", questions: 10, temps: 1.6, visee: 2,
+    nom: "Facile", tete: "🌻", questions: 10, temps: 1.6, visee: 2,
     aides: [0.22, 0.42, 0.58], depart: 0, pente: 0.55,
   },
   parisien: {
-    nom: "Parisien", tete: "🥖", questions: 20, temps: 0.8, visee: 0.65,
+    nom: "Normal", tete: "🥖", questions: 20, temps: 0.8, visee: 0.65,
     aides: null, depart: 0.3, pente: 0.7,
   },
   /* Le mode station ne se joue pas sur la carte : tout porte sur les stations elles-mêmes,
@@ -27,7 +27,18 @@ const MODES = {
     aides: null, depart: 0.1, pente: 0.65,
     formes: ["corresp", "pasterminus", "lettre", "next", "long"],
   },
+  /* Le mode ligne : on choisit sa ligne avant de commencer, et la manche entière s'y
+     tient. Les formes retenues sont celles qui portaient déjà sur une ligne — situer une
+     station, la reconnaître, dire ce qui suit, repérer l'intruse, citer les
+     arrondissements traversés — mais la ligne ne change plus d'une question à l'autre. */
+  ligne: {
+    nom: "Ligne", tete: "🚇", questions: 10, temps: 1.1, visee: 1.1,
+    aides: [0.3, 0.55, 0.72], depart: 0.1, pente: 0.65,
+    formes: ["spot", "name", "next", "odd", "wards"], choixLigne: true,
+  },
 };
+
+const LIGNE_CHOISIE = "metro-ligne";
 
 const MODE_CHOISI = "metro-mode";
 /* Tolérance de visée. Elle suit le zoom : viser à 15 pixels près doit valoir la même
@@ -66,7 +77,10 @@ const FILLERS = ["station", "spot", "which", "odd", "next", "outside", "far",
 const NEEDS_LINE = new Set(["spot", "name", "wards", "next", "odd"]);
 
 /* un record par mode : les deux ne se comparent pas */
-const bestKey = () => `metro-chasse-record-${Game.mode}`;
+/* Le record est propre au mode — et, en mode ligne, propre à la ligne : battre son
+   score sur la 14 n'a rien à voir avec le battre sur la 7. */
+const bestKey = () => `metro-chasse-record-${Game.mode}` +
+  (MODES[Game.mode].choixLigne && ligneFixe !== null ? `-${ligneFixe}` : "");
 
 /* Titres décernés en fin de manche, du meilleur au plus modeste. */
 const GRADES = [
@@ -160,6 +174,8 @@ let termini = [];                // les mêmes, des plus courues aux plus discr�
 let parInitiale = new Map();     // stations rangées par première lettre
 let initiales = [];              // lettres jouables, des plus fournies aux plus avares
 let seuils = [];                 // longueurs de nom jouables, de la plus permissive à la plus rude
+let ligneFixe = null;            // ligne imposée à toute la manche, en mode ligne
+let jouables = [];               // lignes proposées au choix : toutes sauf les bis
 let started = 0;                 // horodatage du début de la question
 let reveal = null;               // ce qui reste affiché après une réponse
 
@@ -439,18 +455,47 @@ addEventListener("metro:ready", () => {
     if (net.stations.filter((_, i) => lettresDe(i) >= n).length >= 3) seuils.push(n);
   }
 
+  dresseLignes();
   playBtn.disabled = false;
   let garde = "provincial";
   try { garde = localStorage.getItem(MODE_CHOISI) || "provincial"; } catch { /* ignoré */ }
   setMode(garde);
 });
 
+const choixLignes = document.getElementById("lignes");
+
+/* Le damier des seize lignes, dressé une fois le réseau chargé. */
+function dresseLignes() {
+  // les bis sont écartées : quatre stations et un seul arrondissement ne font pas une manche
+  jouables = net.lines.map((_, i) => i).filter(i => !/b$/i.test(net.lines[i][0]));
+  choixLignes.innerHTML = jouables.map(i => {
+    const l = net.lines[i], bouts = lineEnds(i);
+    return `<button data-ligne="${i}" style="background:${l[1]};color:${l[2]}"
+             title="${bouts.from} ↔ ${bouts.to}">${l[0]}</button>`;
+  }).join("");
+  choixLignes.querySelectorAll("button").forEach(b => {
+    b.onclick = () => choisirLigne(+b.dataset.ligne);
+  });
+}
+
+function choisirLigne(i) {
+  ligneFixe = i;
+  try { localStorage.setItem(LIGNE_CHOISIE, String(i)); } catch { /* ignoré */ }
+  choixLignes.querySelectorAll("button").forEach(b =>
+    b.classList.toggle("on", +b.dataset.ligne === i));
+  showRecord();
+}
+
 function showRecord() {
   let best = 0;
   try { best = +(localStorage.getItem(bestKey()) || 0); } catch { /* stockage indisponible */ }
-  recordLine.textContent = best
-    ? `record ${best.toLocaleString("fr-FR")} · ${ROUNDS} questions`
-    : `${ROUNDS} questions`;
+  const tete = best ? `record ${best.toLocaleString("fr-FR")} · ` : "";
+  if (MODES[Game.mode].choixLigne && ligneFixe !== null) {
+    const bouts = lineEnds(ligneFixe);
+    recordLine.textContent = `${tete}${bouts.from} ↔ ${bouts.to}`;
+    return;
+  }
+  recordLine.textContent = `${tete}${ROUNDS} questions`;
 }
 
 /* Le mode se choisit avant la partie et se retient d'une visite à l'autre. */
@@ -460,7 +505,20 @@ function setMode(cle) {
   document.querySelectorAll("#modes button").forEach(b =>
     b.classList.toggle("on", b.dataset.mode === Game.mode));
   try { localStorage.setItem(MODE_CHOISI, Game.mode); } catch { /* ignoré */ }
-  vitrine();
+
+  const surLigne = !!MODES[Game.mode].choixLigne;
+  choixLignes.hidden = !surLigne;
+  if (surLigne) {
+    if (ligneFixe === null) {
+      let garde = 0;
+      try { garde = +(localStorage.getItem(LIGNE_CHOISIE) || 0); } catch { /* ignoré */ }
+      ligneFixe = jouables.includes(garde) ? garde : jouables[0];
+    }
+    choisirLigne(ligneFixe);                       // rétablit la pastille allumée
+  } else {
+    ligneFixe = null;
+  }
+
   showRecord();
 }
 
@@ -494,18 +552,6 @@ function illustre(cadre, nom, valide) {
 }
 
 /* L'illustration du mode choisi. */
-const cadre = document.getElementById("vitrine");
-function vitrine() {
-  const m = MODES[Game.mode];
-  cadre.innerHTML = `<span class="tete">${m.tete}</span>`;
-  cadre.classList.remove("anime");
-  void cadre.offsetWidth;
-  cadre.classList.add("anime");
-
-  const cle = Game.mode;
-  illustre(cadre, `mode-${cle}`, () => Game.mode === cle);
-}
-
 document.querySelectorAll("#modes button").forEach(b => {
   b.onclick = () => setMode(b.dataset.mode);
 });
@@ -628,7 +674,12 @@ const swatch = i =>
 function buildRound() {
   // un mode peut avoir son propre catalogue, plus court que la manche : on le rebat
   // autant de fois qu'il faut, en veillant à ne pas répéter une forme d'un tour à l'autre
-  const propres = MODES[Game.mode].formes;
+  let propres = MODES[Game.mode].formes;
+  // une ligne courte n'a pas de quoi nourrir toutes les formes : 3bis ne traverse qu'un
+  // arrondissement et compte quatre stations, de quoi situer et enchaîner, rien de plus
+  if (propres && ligneFixe !== null && byLine[ligneFixe].length < 8) {
+    propres = propres.filter(f => f !== "wards" && f !== "name");
+  }
   if (propres) {
     const picks = [];
     while (picks.length < ROUNDS) {
@@ -875,7 +926,9 @@ function nextQuestion() {
   // une question sur une ligne recadre la carte ; deux qui se suivent gardent la même,
   // sauf pour les arrondissements dont la ligne porte la difficulté
   if (NEEDS_LINE.has(kind)) {
-    const keep = Game.line !== null && kind !== "wards" && NEEDS_LINE.has(Game.lastKind);
+    // en mode ligne, elle est choisie une fois pour toutes avant la partie
+    const keep = ligneFixe !== null ||
+                 (Game.line !== null && kind !== "wards" && NEEDS_LINE.has(Game.lastKind));
     if (!keep) {
       Game.line = pickLine(Game.step, kind);
       select(Game.line);
@@ -2057,13 +2110,14 @@ function start() {
   askedThemes = new Set();
   reveal = null;
   Game.blind = false;
-  Game.line = null;
+  Game.line = ligneFixe;                           // nulle hors du mode ligne
   Game.lastKind = null;
   Game.plan = buildRound();
   document.body.classList.add("playing");
   hud.hidden = false;
   over.hidden = true;
-  if (selected !== null) select(null);
+  if (ligneFixe !== null) select(ligneFixe);       // la carte s'ouvre sur la ligne
+  else if (selected !== null) select(null);
   showStreak();
   tally();
   hud.hidden = true;

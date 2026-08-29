@@ -29,6 +29,7 @@ let simTime = 0, lastFrame = 0, lastScan = -1e9;
 let shapeLine = [];        // ligne à laquelle appartient chaque tracé
 let framed = false;        // le réseau a-t-il déjà été cadré ?
 let bounds = null;
+const album = document.getElementById("album-vue");
 let selected = null;       // ligne isolée, ou null pour le réseau entier
 let anim = null;           // transition de cadrage en cours
 const stats = [];          // caractéristiques de chaque ligne, calculées une fois
@@ -140,6 +141,7 @@ async function boot() {
   net.lines.forEach((l, i) => { visible.add(i); l[3] = pale(l[1], 0.82); });
   shapeLine = new Array(net.shapes.length).fill(0);
   net.patterns.forEach(p => { shapeLine[p[1]] = p[0]; });
+  traceVoies();
   fit();
   simTime = clock();
   document.getElementById("loader").classList.add("done");
@@ -358,7 +360,84 @@ function wear(name) {
   bgDirty = true;
 }
 
-/* ---------- rames ---------- */
+/* ---------- rames d'ambiance ---------- */
+
+/* Sur l'écran d'accueil, des rames parcourent chaque ligne. Elles ne suivent pas les
+   horaires — ce serait invisible et, aux heures creuses, le réseau paraîtrait mort :
+   elles tournent en boucle à vitesse fixe, dans les deux sens, pour que la carte ait
+   l'air en service. Elles s'effacent dès qu'une partie commence. */
+let voies = [];                  // tracé principal de chaque ligne et ses longueurs cumulées
+
+const RAMES = 3;                 // par ligne et par sens
+const TOUR = 26;                 // secondes pour parcourir une ligne de bout en bout
+
+function traceVoies() {
+  // le tracé le plus long de chaque ligne : les services partiels s'arrêtent en route
+  const parLigne = new Map();
+  for (const [line, shapeIdx] of net.patterns) {
+    const pts = net.shapes[shapeIdx].world;
+    const vu = parLigne.get(line);
+    if (!vu || pts.length > vu.length) parLigne.set(line, pts);
+  }
+  voies = net.lines.map((_, i) => {
+    const pts = parLigne.get(i) || [];
+    const cumul = [0];
+    for (let k = 1; k < pts.length; k++) {
+      cumul.push(cumul[k - 1] +
+        Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+    }
+    return { pts, cumul, total: cumul[cumul.length - 1] || 0 };
+  });
+}
+
+/* Point situé à la distance `d` du départ, par dichotomie sur les longueurs cumulées. */
+function surVoie(voie, d) {
+  let lo = 0, hi = voie.cumul.length - 1;
+  while (lo < hi - 1) {
+    const m = (lo + hi) >> 1;
+    if (voie.cumul[m] <= d) lo = m; else hi = m;
+  }
+  const seg = voie.cumul[hi] - voie.cumul[lo] || 1;
+  const u = (d - voie.cumul[lo]) / seg;
+  const a = voie.pts[lo], b = voie.pts[hi];
+  return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
+}
+
+function drawRames(ctx, t) {
+  const zoom = Math.min(1.6, view.scale / fitScale);
+  const L = 5 + 5 * zoom;                          // longueur de la rame, en pixels
+  const E = 2 + 1.6 * zoom;                        // et sa largeur
+  ctx.save();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = skin.halo;
+  for (let i = 0; i < voies.length; i++) {
+    const voie = voies[i];
+    if (!voie.total || !visible.has(i)) continue;
+    ctx.fillStyle = net.lines[i][1];
+    for (let k = 0; k < RAMES * 2; k++) {
+      const sens = k % 2 ? -1 : 1;
+      // le décalage dépend aussi de la ligne : sans lui, toutes partiraient de front
+      const phase = k / (RAMES * 2) + i * 0.137;
+      let u = (t / TOUR * sens + phase) % 1;
+      if (u < 0) u += 1;
+      const d = u * voie.total;
+      const [x, y] = surVoie(voie, d);
+      // un second point juste devant donne le cap : la rame se couche sur sa voie
+      const [x2, y2] = surVoie(voie, Math.min(voie.total, d + voie.total * 0.004));
+      const px = sx(x), py = sy(y);
+      const angle = Math.atan2(sy(y2) - py, sx(x2) - px);
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.roundRect(-L / 2, -E / 2, L, E, E / 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
 
 function scan(t) {
   active = [];
@@ -378,6 +457,7 @@ function draw(t) {
   ctx.drawImage(bg, 0, 0, w, h);
 
   if (window.Game && Game.playing) Game.draw(ctx);
+  else drawRames(ctx, performance.now() / 1000);
 
   const hh = String(Math.floor(t / 3600) % 24).padStart(2, "0");
   const mm = String(Math.floor(t / 60) % 60).padStart(2, "0");
@@ -394,10 +474,11 @@ function frame(ts) {
   if (Math.abs(simTime - lastScan) > 0.6) scan(simTime);
   if (!framed && !fit()) { requestAnimationFrame(frame); return; }
 
-  // la carte est immobile la plupart du temps : inutile de la repeindre soixante fois
-  // par seconde. On ne redessine que si quelque chose l'exige vraiment.
-  const busy = bgDirty || anim || (window.Game && Game.playing);
-  if (!busy) {
+  // La carte n'est plus jamais immobile : hors partie les rames circulent, pendant une
+  // partie la couche de jeu s'anime. Reste un cas où repeindre ne sert à rien — quand la
+  // collection recouvre l'écran et qu'il n'y a rien à voir derrière.
+  const couvert = album && !album.hidden && !bgDirty && !anim;
+  if (couvert) {
     clock2();                                      // l'en-tête suffit, une fois par seconde
     requestAnimationFrame(frame);
     return;

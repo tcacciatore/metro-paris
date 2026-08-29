@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Métro de Paris — la chasse aux stations</title>
-<link rel="stylesheet" href="style.css?v=52">
+<link rel="stylesheet" href="style.css?v=55">
 </head>
 <body>
 <canvas id="map"></canvas>
@@ -20,12 +20,13 @@
 <div id="start">
   <div class="rainbow"></div>
   <h2>La chasse aux stations</h2>
-  <figure id="vitrine"><span class="tete"></span></figure>
   <div id="modes">
-    <button data-mode="provincial" class="on">Provincial</button>
-    <button data-mode="parisien">Parisien</button>
+    <button data-mode="provincial" class="on">Facile</button>
+    <button data-mode="parisien">Normal</button>
     <button data-mode="stations">Stations</button>
+    <button data-mode="ligne">Ligne</button>
   </div>
+  <div id="lignes" hidden></div>
   <button id="play"><span class="tri"></span>Jouer</button>
   <p id="record"></p>
   <button id="album">Collection</button>
@@ -56,9 +57,35 @@
 <div id="over" hidden></div>
 
 <div id="rush" hidden>
+  <!-- la motrice ferme la marche : la rame file vers la droite, c'est donc son bord
+       droit qui ouvre le chemin -->
   <div class="rame">
-    <span></span><span></span><span></span><span></span><span></span>
-    <span></span><span></span><span></span><span></span><span></span>
+    <div class="voiture">
+      <div class="baies">
+        <span class="porte"></span><span class="vitre"></span><span class="vitre"></span>
+        <span class="porte"></span><span class="vitre"></span><span class="vitre"></span>
+        <span class="porte"></span>
+      </div>
+      <div class="bogie avant"></div><div class="bogie arriere"></div>
+    </div>
+    <div class="voiture">
+      <div class="baies">
+        <span class="porte"></span><span class="vitre"></span><span class="vitre"></span>
+        <span class="porte"></span><span class="vitre"></span><span class="vitre"></span>
+        <span class="porte"></span>
+      </div>
+      <div class="bogie avant"></div><div class="bogie arriere"></div>
+    </div>
+    <div class="voiture tete">
+      <div class="baies">
+        <span class="porte"></span><span class="vitre"></span><span class="vitre"></span>
+        <span class="porte"></span><span class="vitre"></span>
+      </div>
+      <div class="pare-brise"></div>
+      <div class="girouette"></div>
+      <div class="phare haut"></div><div class="phare bas"></div>
+      <div class="bogie avant"></div><div class="bogie arriere"></div>
+    </div>
   </div>
 </div>
 
@@ -68,8 +95,8 @@
 <div id="tooltip" hidden></div>
 
 
-<script src="app.js?v=52"></script>
-<script src="cards.js?v=52"></script>
-<script src="game.js?v=52"></script>
+<script src="app.js?v=55"></script>
+<script src="cards.js?v=55"></script>
+<script src="game.js?v=55"></script>
 </body>
 </html>
