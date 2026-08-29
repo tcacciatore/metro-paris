@@ -2,45 +2,39 @@
    retrouver une station nommée, ou désigner plusieurs stations d'un arrondissement.
    S'appuie sur les données déjà chargées par app.js (réseau, arrondissements). */
 
-/* Longueur de la manche. Elle dépend du mode : dix questions en provincial, vingt en
-   parisien — d'où une variable et non une constante, fixée au choix du mode. */
+/* Longueur de la manche. Elle dépend du mode : vingt questions sur tout le réseau, dix
+   sur une ligne seule — d'où une variable et non une constante, fixée au choix du mode. */
 let ROUNDS = 20;
 
-/* Deux façons de jouer. Le mode ne change pas les questions, il change tout le reste :
-   le temps accordé, la générosité de la visée, l'arrivée des coups de pouce, et surtout
-   l'endroit où l'on puise dans les classements de difficulté — un provincial reste dans
-   les stations que tout le monde connaît, un parisien va chercher les plus discrètes. */
+
+/* Deux façons de jouer, et un seul réglage de difficulté : celle-ci ne se choisit plus,
+   elle monte au fil de la manche. Les chiffres sont les mêmes des deux côtés — le mode
+   ne dit pas si c'est dur, il dit sur quoi portent les questions. */
+const REGLAGE = {
+  temps: 0.8,                    // part du temps accordé par question
+  visee: 0.65,                   // tolérance de visée sur la carte
+  aides: null,                   // aucun coup de pouce
+  depart: 0.3,                   // difficulté de la première question
+  pente: 0.7,                    // et ce qu'elle gagne d'ici la dernière
+};
+
 const MODES = {
-  provincial: {
-    nom: "Facile", tete: "🌻", questions: 10, temps: 1.6, visee: 2,
-    aides: [0.22, 0.42, 0.58], depart: 0, pente: 0.55,
-  },
-  parisien: {
-    nom: "Normal", tete: "🥖", questions: 20, temps: 0.8, visee: 0.65,
-    aides: null, depart: 0.3, pente: 0.7,
-  },
-  /* Le mode station ne se joue pas sur la carte : tout porte sur les stations elles-mêmes,
-     leur nom, leurs correspondances, leur place sur la ligne. On y répond au clavier ou
-     parmi des propositions, jamais en visant. D'où son propre catalogue de formes. */
-  stations: {
-    nom: "Stations", tete: "🚉", questions: 12, temps: 1.2, visee: 1,
-    aides: null, depart: 0.1, pente: 0.65,
-    formes: ["corresp", "pasterminus", "lettre", "next", "long"],
-  },
-  /* Le mode ligne : on choisit sa ligne avant de commencer, et la manche entière s'y
-     tient. Les formes retenues sont celles qui portaient déjà sur une ligne — situer une
-     station, la reconnaître, dire ce qui suit, repérer l'intruse, citer les
-     arrondissements traversés — mais la ligne ne change plus d'une question à l'autre. */
+  /* Le classique : tout le réseau, toutes les formes de questions. */
+  metro: { nom: "Métro", questions: 20, ...REGLAGE },
+
+  /* On choisit sa ligne avant de commencer, et la manche entière s'y tient. Les formes
+     retenues sont celles qui portaient déjà sur une ligne — situer une station, la
+     reconnaître, dire ce qui suit, repérer l'intruse, citer les arrondissements
+     traversés — mais la ligne ne change plus d'une question à l'autre. */
   ligne: {
-    nom: "Ligne", tete: "🚇", questions: 10, temps: 1.1, visee: 1.1,
-    aides: [0.3, 0.55, 0.72], depart: 0.1, pente: 0.65,
+    nom: "Lignes", questions: 10, ...REGLAGE,
     formes: ["spot", "name", "next", "odd", "wards"], choixLigne: true,
   },
 };
 
 const LIGNE_CHOISIE = "metro-ligne";
-
 const MODE_CHOISI = "metro-mode";
+const DEFAUT = "metro";
 /* Tolérance de visée. Elle suit le zoom : viser à 15 pixels près doit valoir la même
    chose que l'on regarde tout le réseau ou un seul quartier. */
 /* Coup de pouce sur « Trouve telle station » : passé ces fractions du temps accordé,
@@ -59,12 +53,13 @@ const LIMIT = { station: 15, district: 25, spot: 15, name: 30, wards: 35,
                 outside: 20, far: 20, fake: 20, landmark: 18,
                 corresp: 20, pasterminus: 22, lettre: 25, long: 28 };  // secondes, par type
 
-/* Les douze formes de questions. Elles ne sont pas classées : la difficulté d'une manche
+/* Toutes les formes de questions. Elles ne sont pas classées : la difficulté d'une manche
    ne vient pas de l'ordre des types mais de ce qu'on tire à l'intérieur de chacun — plus
    la manche avance, plus la station, l'arrondissement ou le thème sont retors. L'ordre,
    lui, est entièrement rebattu à chaque partie. */
 const KINDS = ["station", "which", "hue", "name", "odd", "outside", "spot", "landmark",
-               "district", "far", "next", "fake", "theme", "wards"];
+               "district", "far", "next", "fake", "theme", "wards",
+               "corresp", "pasterminus", "lettre", "long"];
 
 /* Formes assez accessibles pour ouvrir une manche. */
 const OPENERS = ["station", "which", "hue"];
@@ -72,7 +67,7 @@ const OPENERS = ["station", "which", "hue"];
 /* Formes admises en reprise quand la manche est plus longue que le catalogue : on évite
    celles dont le vivier est le plus étroit, pour ne pas radoter. */
 const FILLERS = ["station", "spot", "which", "odd", "next", "outside", "far",
-                 "landmark", "fake", "hue", "district"];
+                 "landmark", "fake", "hue", "district", "corresp", "pasterminus"];
 
 const NEEDS_LINE = new Set(["spot", "name", "wards", "next", "odd"]);
 
@@ -148,7 +143,7 @@ const Game = {
   score: 0,
   step: 0,
   history: [],
-  mode: "provincial",
+  mode: "metro",
   streak: 0,         // bonnes réponses d'affilée
   line: null,        // ligne sur laquelle porte la question en cours
   lastKind: null,
@@ -457,8 +452,16 @@ addEventListener("metro:ready", () => {
 
   dresseLignes();
   playBtn.disabled = false;
-  let garde = "provincial";
-  try { garde = localStorage.getItem(MODE_CHOISI) || "provincial"; } catch { /* ignoré */ }
+  // les anciens modes — facile, normal, stations — retombent tous sur le classique, et
+  // le meilleur score du normal le suit : il portait déjà sur les mêmes réglages
+  try {
+    const ancien = `metro-chasse-record-parisien`;
+    if (localStorage.getItem(ancien) && !localStorage.getItem("metro-chasse-record-metro")) {
+      localStorage.setItem("metro-chasse-record-metro", localStorage.getItem(ancien));
+    }
+  } catch { /* stockage indisponible */ }
+  let garde = DEFAUT;
+  try { garde = localStorage.getItem(MODE_CHOISI) || DEFAUT; } catch { /* ignoré */ }
   setMode(garde);
 });
 
@@ -500,7 +503,7 @@ function showRecord() {
 
 /* Le mode se choisit avant la partie et se retient d'une visite à l'autre. */
 function setMode(cle) {
-  Game.mode = MODES[cle] ? cle : "provincial";
+  Game.mode = MODES[cle] ? cle : DEFAUT;
   ROUNDS = MODES[Game.mode].questions;
   document.querySelectorAll("#modes button").forEach(b =>
     b.classList.toggle("on", b.dataset.mode === Game.mode));
@@ -697,7 +700,8 @@ function buildRound() {
   // plus de formes que de questions, chaque partie en laisse une ou deux de côté
   const opener = OPENERS[Math.floor(Math.random() * OPENERS.length)];
   const picks = [opener, ...shuffle(KINDS.filter(k => k !== opener))];
-  // KINDS et ROUNDS ont la même taille : toutes les formes passent, aucune ne se répète
+  // il y a un peu moins de formes que de questions : toutes passent, et les deux ou trois
+  // dernières places sont reprises parmi celles dont le vivier est le plus large
   while (picks.length < ROUNDS) {
     picks.push(FILLERS[Math.floor(Math.random() * FILLERS.length)]);
   }
@@ -1377,7 +1381,10 @@ function shareText(grade) {
   const grid = Game.history
     .map(h => (v => v > 0.75 ? "🟩" : v > 0.25 ? "🟨" : "🟥")(success(h)))
     .join("");
-  return `La chasse aux stations · mode ${MODES[Game.mode].nom.toLowerCase()}\n` +
+  const entete = MODES[Game.mode].choixLigne && ligneFixe !== null
+    ? `ligne ${lineName(ligneFixe)}`
+    : `mode ${MODES[Game.mode].nom.toLowerCase()}`;
+  return `La chasse aux stations · ${entete}\n` +
          `${Game.score} pts · ${grade}\n${grid}\n` + location.href.split(/[?#]/)[0];
 }
 
@@ -1502,7 +1509,7 @@ const elapsed = q => (performance.now() - started) / 1000 / limite(q.kind);
 /* Nombre de coups de pouce déjà donnés. */
 function hints(q) {
   const aides = MODES[Game.mode].aides;
-  if (!aides || q.kind !== "station" || reveal) return 0;   // le parisien se débrouille
+  if (!aides || q.kind !== "station" || reveal) return 0;   // plus aucun mode n'en donne
   const u = elapsed(q);
   return aides.filter(seuil => u >= seuil).length;
 }
