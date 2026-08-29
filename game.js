@@ -184,6 +184,7 @@ const rush = document.getElementById("rush");
 const edge = document.getElementById("edge");
 const party = document.getElementById("party");
 const recordLine = document.getElementById("record");
+const boutsLine = document.getElementById("bouts");
 const choices = hud.querySelector(".choices");
 const reply = hud.querySelector(".reply");
 const field = reply.querySelector("input");
@@ -489,16 +490,21 @@ function choisirLigne(i) {
   showRecord();
 }
 
+/* Le record se tient à part, dans le coin de l'écran : il récompense, il n'instruit pas.
+   Sous le damier, en revanche, les deux terminus disent quelle ligne on a retenue —
+   « 7 » tout seul ne parle qu'à ceux qui la connaissent déjà. */
 function showRecord() {
   let best = 0;
   try { best = +(localStorage.getItem(bestKey()) || 0); } catch { /* stockage indisponible */ }
-  const tete = best ? `record ${best.toLocaleString("fr-FR")} · ` : "";
-  if (MODES[Game.mode].choixLigne && ligneFixe !== null) {
+  recordLine.textContent = best ? `🎉 ${best.toLocaleString("fr-FR")}` : "";
+  recordLine.hidden = !best;
+
+  const surLigne = MODES[Game.mode].choixLigne && ligneFixe !== null;
+  if (surLigne) {
     const bouts = lineEnds(ligneFixe);
-    recordLine.textContent = `${tete}${bouts.from} ↔ ${bouts.to}`;
-    return;
+    boutsLine.textContent = `${bouts.from} ↔ ${bouts.to}`;
   }
-  recordLine.textContent = `${tete}${ROUNDS} questions`;
+  boutsLine.hidden = !surLigne;
 }
 
 /* Le mode se choisit avant la partie et se retient d'une visite à l'autre. */
