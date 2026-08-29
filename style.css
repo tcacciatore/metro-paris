@@ -747,18 +747,35 @@ body.playing > header { display: none; }
 .carte.epique  { background: linear-gradient(150deg, #f7e3bd, #fff8ea 40%, #e8c179); }
 .carte.legende { background: linear-gradient(150deg, #f8cfc6, #fff1ee 38%, #eda093); }
 
-/* les épiques et les légendaires renvoient la lumière */
-.carte.epique::after, .carte.legende::after {
+/* Toutes les cartes renvoient la lumière ; l'intensité monte avec la rareté. Le balayage
+   est une bande claire qui traverse la surface en diagonale, doublée d'un voile irisé qui
+   ne se voit que du coin de l'œil — c'est ce voile qui donne l'impression de relief. */
+.carte::after {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: 14px;
-  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, .75) 46%,
-              rgba(255, 240, 200, .5) 52%, transparent 68%);
-  background-size: 260% 260%;
-  animation: holo 4.5s ease-in-out infinite;
+  background:
+    linear-gradient(115deg, transparent 34%, rgba(255, 255, 255, .45) 47%,
+                    rgba(255, 245, 220, .3) 53%, transparent 66%),
+    linear-gradient(60deg, rgba(255, 180, 220, .18), rgba(180, 225, 255, .18) 30%,
+                    rgba(190, 255, 215, .18) 55%, rgba(255, 240, 180, .18) 80%,
+                    rgba(225, 190, 255, .18));
+  background-size: 260% 260%, 100% 100%;
+  animation: holo 5.5s ease-in-out infinite;
   pointer-events: none;
   mix-blend-mode: screen;
+}
+.carte.rare::after { animation-duration: 4.5s; }
+.carte.epique::after, .carte.legende::after {
+  animation-duration: 4s;
+  background:
+    linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, .78) 46%,
+                    rgba(255, 240, 200, .55) 52%, transparent 68%),
+    linear-gradient(60deg, rgba(255, 180, 220, .3), rgba(180, 225, 255, .3) 30%,
+                    rgba(190, 255, 215, .3) 55%, rgba(255, 240, 180, .3) 80%,
+                    rgba(225, 190, 255, .3));
+  background-size: 260% 260%, 100% 100%;
 }
 .carte.legende::after { animation-duration: 3.2s; }
 
@@ -780,15 +797,19 @@ body.playing > header { display: none; }
   line-height: 1.15;
   letter-spacing: -0.01em;
 }
-.carte .pv {
+/* à la place des points de vie, la donnée qui dit vraiment ce que pèse une station */
+.carte .trafic {
   font-weight: 800;
   font-size: 15px;
   font-variant-numeric: tabular-nums;
   color: #b3261e;
+  white-space: nowrap;
 }
-.carte .pv i { font-style: normal; font-size: 9px; letter-spacing: .04em; }
+.carte .trafic i { font-style: normal; font-size: 9px; letter-spacing: .04em; }
 
 .carte .vue {
+  position: relative;
+  z-index: 2;                                    /* au-dessus du voile irisé, qui la délaverait */
   display: block;
   width: 100%;
   height: 122px;
@@ -1021,11 +1042,24 @@ body.explored #album {
 
 /* ---------- les cartes chromées ---------- */
 
+/* La chromée est l'équivalent des « rainbow rare » : tout le carton passe à l'arc-en-ciel
+   pastel, sur lequel se superposent un grain pailleté, un balayage de lumière et de
+   grandes étoiles blanches. Les panneaux de texte restent translucides pour qu'on lise
+   par-dessus sans écraser la couleur. */
 .carte.chrome {
-  background: linear-gradient(150deg, #cfd6e6, #f2f5fb 40%, #b3bdd2);
-  box-shadow: 0 10px 30px -10px rgba(60, 90, 180, .55),
-              0 0 16px -6px rgba(160, 200, 255, .5);
+  background:
+    /* le grain : de fines diagonales et un semis de points, qui accrochent la lumière */
+    repeating-linear-gradient(58deg, rgba(255, 255, 255, .55) 0 1px,
+                              transparent 1px 7px),
+    repeating-linear-gradient(-58deg, rgba(255, 255, 255, .35) 0 1px,
+                              transparent 1px 9px),
+    linear-gradient(146deg, #ffc2e0, #ffd9a8 14%, #fdf59a 28%, #b4f0ab 43%,
+                    #a5e8f7 58%, #b8c6ff 73%, #e4b6ff 87%, #ffc2e0);
+  box-shadow: 0 10px 34px -10px rgba(120, 90, 200, .6),
+              0 0 22px -6px rgba(190, 210, 255, .65);
 }
+.carte.chrome .pouvoirs { background: rgba(255, 255, 255, .55); }
+.carte.chrome .lieu, .carte.chrome .pouvoirs dd { color: #3d4457; }
 
 /* Un liseré irisé cerne la carte. C'est la teinte qui tourne, pas la forme : une forme
    en rotation déborderait par ses coins. */
@@ -1050,9 +1084,14 @@ body.explored #album {
   position: absolute;
   inset: 0;
   border-radius: 14px;
-  background: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, .5) 46%,
-              rgba(200, 230, 255, .35) 52%, transparent 66%);
-  background-size: 240% 240%;
+  background:
+    linear-gradient(115deg, transparent 28%, rgba(255, 255, 255, .85) 45%,
+                    rgba(210, 240, 255, .6) 53%, transparent 70%),
+    conic-gradient(from 210deg at 30% 25%, rgba(255, 190, 230, .45),
+                   rgba(190, 235, 255, .45), rgba(200, 255, 220, .45),
+                   rgba(255, 245, 190, .45), rgba(230, 195, 255, .45),
+                   rgba(255, 190, 230, .45));
+  background-size: 240% 240%, 100% 100%;
   animation: holo 3.4s ease-in-out infinite;
   mix-blend-mode: screen;
   pointer-events: none;
@@ -1062,29 +1101,29 @@ body.explored #album {
 .carte.chrome .vue { border-color: rgba(30, 40, 60, .78); }
 
 /* trois étincelles qui scintillent en décalé */
+/* Sept étoiles semées sur toute la hauteur, de tailles inégales et déphasées : elles
+   ne doivent jamais scintiller ensemble, sinon la carte clignote au lieu de miroiter. */
 .carte .etincelles {
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 3;
   color: #fff;
-  text-shadow: 0 0 8px rgba(255, 255, 255, .95), 0 0 14px rgba(150, 210, 255, .8);
-  font-size: 15px;
 }
-.carte .etincelles i,
-.carte .etincelles b { position: absolute; font-style: normal; font-weight: 400; }
-.carte .etincelles { animation: brille 2.2s ease-in-out infinite; }
 .carte .etincelles i {
-  top: 46%; right: 9%;
-  font-size: 11px;
-  animation: brille 2.2s ease-in-out .7s infinite;
+  position: absolute;
+  font-style: normal;
+  line-height: 1;
+  text-shadow: 0 0 10px rgba(255, 255, 255, .95), 0 0 20px rgba(170, 220, 255, .9);
+  animation: brille 2.4s ease-in-out infinite;
 }
-.carte .etincelles b {
-  bottom: 16%; left: 12%;
-  font-size: 13px;
-  animation: brille 2.2s ease-in-out 1.4s infinite;
-}
-.carte .etincelles { padding: 6px 0 0 8px; }
+.carte .etincelles .e1 { top:  7%; left:  9%; font-size: 22px; animation-delay: 0s; }
+.carte .etincelles .e2 { top: 21%; right: 12%; font-size: 15px; animation-delay: .9s; }
+.carte .etincelles .e3 { top: 38%; left: 20%; font-size: 12px; animation-delay: 1.7s; }
+.carte .etincelles .e4 { top: 44%; right:  8%; font-size: 20px; animation-delay: .4s; }
+.carte .etincelles .e5 { bottom: 31%; left: 11%; font-size: 17px; animation-delay: 1.3s; }
+.carte .etincelles .e6 { bottom: 17%; right: 22%; font-size: 13px; animation-delay: 2s; }
+.carte .etincelles .e7 { bottom:  6%; left: 34%; font-size: 11px; animation-delay: .6s; }
 
 @keyframes brille {
   0%, 100% { opacity: .2; transform: scale(.75); }
@@ -1188,13 +1227,12 @@ body.explored #album {
 }
 #modes button {
   flex: 1;
-  padding: 9px 6px;                                /* trois segments à loger, pas deux */
+  padding: 9px 15px;
   border: 0;
   border-radius: 17px;
   background: none;
   color: var(--muted);
-  font: 600 14px/1 inherit;
-  white-space: nowrap;
+  font: 600 15px/1 inherit;
   cursor: pointer;
   transition: background .15s, color .15s;
 }

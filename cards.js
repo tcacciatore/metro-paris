@@ -19,6 +19,7 @@ const CHANCE_CHROME = 30;
 
 let flux = [];                   // passages quotidiens par station
 let rangs = [];                  // rareté de chaque station, de 0 à 4
+let places = [];                 // place au classement de fréquentation
 let avoir = new Set();           // cartes déjà obtenues
 let brillantes = new Set();      // et celles qu'on a en version chromée
 
@@ -30,6 +31,14 @@ addEventListener("metro:ready", () => {
   for (const tr of fleet) if (tr.today) parPattern[tr.pat]++;
   flux = new Array(net.stations.length).fill(0);
   net.patterns.forEach((p, k) => { for (const st of p[3]) flux[st] += parPattern[k]; });
+
+  // le classement de fréquentation : une donnée que la carte est seule à donner, et qui
+  // se compare d'une carte à l'autre — « 3e station la plus desservie », ça parle
+  places = new Array(net.stations.length);
+  net.stations
+    .map((_, i) => i)
+    .sort((a, b) => flux[b] - flux[a])
+    .forEach((i, k) => { places[i] = k + 1; });
 
   // le seuil qui sépare une station commune d'une station courue
   const seuil = [...flux].sort((a, b) => a - b)[Math.floor(flux.length * 0.6)];
@@ -90,13 +99,18 @@ Cards.total = () => avoir.size;
 Cards.totalChrome = () => brillantes.size;
 Cards.rang = i => rangs[i];
 Cards.flux = i => flux[i];
+Cards.place = i => places[i];
 
 /* ---------- dessin d'une carte ---------- */
 
 const ordinal2 = n => n === 1 ? "1er" : n + "e";
+/* « station » est féminin : la première station, pas le premier. */
+const ordinale = n => n === 1 ? "1re" : n + "e";
 
-/* L'illustration : le réseau tel qu'il se présente autour de la station, dans un rayon
-   d'environ un kilomètre. Chaque carte a donc son propre paysage. */
+/* L'illustration : les lignes qui desservent la station, et elles seules, tracées sur
+   toute leur longueur. Un carré de quartier pris au hasard se ressemblait d'une carte à
+   l'autre ; le parcours entier d'une ligne a une silhouette reconnaissable, et la place
+   de la station dessus se lit d'un coup d'œil. */
 function vignette(canvas, i) {
   const ctx = canvas.getContext("2d");
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -106,50 +120,75 @@ function vignette(canvas, i) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   const st = net.stations[i];
-  const [cx, cy] = st[4];
-  const rayon = 1400 / M_PER_WORLD;                // un peu plus d'un kilomètre
-  const k = Math.min(w / (rayon * 2), h / (rayon * 2));
-  const px = x => (x - cx) * k + w / 2;
-  const py = y => (y - cy) * k + h / 2;
+  const siennes = st[3];
+
+  // un seul tracé par forme, et seulement pour les lignes qui desservent la station
+  const formes = [];
+  const vues = new Set();
+  for (const p of net.patterns) {
+    if (!siennes.includes(p[0]) || vues.has(p[1])) continue;
+    vues.add(p[1]);
+    formes.push(p);
+  }
+
+  // le cadrage se prend sur ces tracés : chaque carte s'ajuste à ses propres lignes
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of formes) {
+    for (const [x, y] of net.shapes[p[1]].world) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  const k = Math.min(w / (maxX - minX || 1), h / (maxY - minY || 1)) * 0.86;
+  const px = x => (x - (minX + maxX) / 2) * k + w / 2;
+  const py = y => (y - (minY + maxY) / 2) * k + h / 2;
 
   ctx.fillStyle = "#0e1016";
   ctx.fillRect(0, 0, w, h);
 
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.lineWidth = 3.5;
-  const tracees = new Set();
-  for (const p of net.patterns) {
-    if (tracees.has(p[1])) continue;
-    tracees.add(p[1]);
+  ctx.lineWidth = 4;
+  for (const p of formes) {
     const pts = net.shapes[p[1]].world;
     ctx.strokeStyle = net.lines[p[0]][1];
     ctx.beginPath();
-    let dedans = false;
-    for (let n = 0; n < pts.length; n++) {
-      const x = px(pts[n][0]), y = py(pts[n][1]);
-      if (x < -60 || y < -60 || x > w + 60 || y > h + 60) { dedans = false; continue; }
-      if (!dedans) { ctx.moveTo(x, y); dedans = true; } else ctx.lineTo(x, y);
-    }
+    ctx.moveTo(px(pts[0][0]), py(pts[0][1]));
+    for (let n = 1; n < pts.length; n++) ctx.lineTo(px(pts[n][0]), py(pts[n][1]));
     ctx.stroke();
   }
 
-  for (const autre of net.stations) {
-    const x = px(autre[4][0]), y = py(autre[4][1]);
-    if (x < 0 || y < 0 || x > w || y > h) continue;
+  // Les stations de ces mêmes lignes, en jalons. Ils se posent sur le tracé : trop gros,
+  // ils le recouvrent entièrement et la carte n'est plus qu'un chapelet de points blancs.
+  // Leur taille suit donc leur nombre, et ils laissent la couleur transparaître.
+  const jalons = new Set();
+  for (const p of net.patterns) {
+    if (!siennes.includes(p[0])) continue;
+    for (const s of p[3]) jalons.add(s);
+  }
+  const grain = jalons.size > 120 ? 1 : jalons.size > 60 ? 1.4 : 1.9;
+  ctx.fillStyle = "rgba(255, 255, 255, .8)";
+  for (const s of jalons) {
+    if (s === i) continue;
     ctx.beginPath();
-    ctx.arc(x, y, 2.6, 0, 6.2832);
-    ctx.fillStyle = "#e9ecf4";
+    ctx.arc(px(net.stations[s][4][0]), py(net.stations[s][4][1]), grain, 0, 6.2832);
     ctx.fill();
   }
 
-  // la station de la carte, au centre
+  // la station de la carte, cerclée de la couleur de sa première ligne
+  const x = px(st[4][0]), y = py(st[4][1]);
   ctx.beginPath();
-  ctx.arc(px(cx), py(cy), 7, 0, 6.2832);
+  ctx.arc(x, y, 11, 0, 6.2832);
+  ctx.fillStyle = "rgba(255,255,255,.14)";
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x, y, 6, 0, 6.2832);
   ctx.fillStyle = "#fff";
   ctx.fill();
   ctx.lineWidth = 3;
-  ctx.strokeStyle = net.lines[st[3][0]][1];
+  ctx.strokeStyle = net.lines[siennes[0]][1];
   ctx.stroke();
 }
 
@@ -165,10 +204,11 @@ Cards.dessine = (i, chromee) => {
 
   return `
     <article class="carte ${rarete.cle}${chromee ? " chrome" : ""}">
-      ${chromee ? '<span class="etincelles">✦<i>✦</i><b>✦</b></span>' : ""}
+      ${chromee ? `<span class="etincelles">${
+        [1, 2, 3, 4, 5, 6, 7].map(n => `<i class="e${n}">✦</i>`).join("")}</span>` : ""}
       <header>
         <span class="titre">${st[0]}</span>
-        <span class="pv">${Math.round(flux[i] / 10)} <i>PV</i></span>
+        <span class="trafic">${flux[i].toLocaleString("fr-FR")} <i>rames/j</i></span>
       </header>
       <canvas class="vue"></canvas>
       <div class="lignes">${pastilles}
@@ -178,8 +218,8 @@ Cards.dessine = (i, chromee) => {
         <div><dt>Correspondance ×${st[3].length}</dt>
           <dd>${st[3].length > 1 ? st[3].length + " lignes se croisent ici"
                                  : "desservie par une seule ligne"}</dd></div>
-        <div><dt>Passages</dt>
-          <dd>${flux[i].toLocaleString("fr-FR")} rames par jour</dd></div>
+        <div><dt>Fréquentation</dt>
+          <dd>${ordinale(places[i])} station la plus desservie du réseau</dd></div>
       </dl>
       <footer>
         <span class="rarete">${chromee ? "✦ Chromée · " : ""}${"◆".repeat(rang + 1)} ${rarete.nom}</span>

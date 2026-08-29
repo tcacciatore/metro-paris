@@ -19,12 +19,13 @@ const MODES = {
     nom: "Parisien", tete: "🥖", questions: 20, temps: 0.8, visee: 0.65,
     aides: null, depart: 0.3, pente: 0.7,
   },
-  /* La grille du jour : une manche courte, de difficulté moyenne, identique pour tous
-     et jouable une fois par jour. Le sceau la distingue des deux autres — c'est lui qui
-     fige le hasard sur la date et qui enregistre le résultat. */
-  quotidien: {
-    nom: "Du jour", tete: "📅", questions: 10, temps: 1.1, visee: 1.1,
-    aides: [0.3, 0.52, 0.7], depart: 0.15, pente: 0.6, sceau: true,
+  /* Le mode station ne se joue pas sur la carte : tout porte sur les stations elles-mêmes,
+     leur nom, leurs correspondances, leur place sur la ligne. On y répond au clavier ou
+     parmi des propositions, jamais en visant. D'où son propre catalogue de formes. */
+  stations: {
+    nom: "Stations", tete: "🚉", questions: 12, temps: 1.2, visee: 1,
+    aides: null, depart: 0.1, pente: 0.65,
+    formes: ["corresp", "pasterminus", "lettre", "next", "long"],
   },
 };
 
@@ -44,7 +45,8 @@ const PICK_PX = 26;              // portée d'un clic pour désigner une station
 const PICK_MIN = 300;
 const LIMIT = { station: 15, district: 25, spot: 15, name: 30, wards: 35,
                 hue: 15, theme: 35, next: 18, odd: 20, which: 15,
-                outside: 20, far: 20, fake: 20, landmark: 18 };       // secondes, par type
+                outside: 20, far: 20, fake: 20, landmark: 18,
+                corresp: 20, pasterminus: 22, lettre: 25, long: 28 };  // secondes, par type
 
 /* Les douze formes de questions. Elles ne sont pas classées : la difficulté d'une manche
    ne vient pas de l'ordre des types mais de ce qu'on tire à l'intérieur de chacun — plus
@@ -153,6 +155,11 @@ let hueOrder = [];               // lignes classées de la teinte la plus isolé
 let outsiders = [];              // stations hors de Paris, des plus lointaines aux plus proches
 let themes = [];
 let askedThemes = new Set();
+let estTerminus = new Set();     // stations en bout de ligne
+let termini = [];                // les mêmes, des plus courues aux plus discrètes
+let parInitiale = new Map();     // stations rangées par première lettre
+let initiales = [];              // lettres jouables, des plus fournies aux plus avares
+let seuils = [];                 // longueurs de nom jouables, de la plus permissive à la plus rude
 let started = 0;                 // horodatage du début de la question
 let reveal = null;               // ce qui reste affiché après une réponse
 
@@ -194,6 +201,7 @@ reply.addEventListener("submit", e => {
   const q = Game.question;
   if (!q || reveal) return;
   if (q.kind === "theme") return answerTheme(q);
+  if (q.kind === "lettre" || q.kind === "long") return answerNom(q);
   if (q.kind !== "wards") return;
   const n = parseInt(field.value, 10);
   field.value = "";
@@ -241,6 +249,48 @@ function answerTheme(q) {
   else field.focus();
 }
 
+/* Les deux formes où l'on écrit un nom libre : une initiale imposée, ou une longueur
+   minimale. La règle change, la mécanique est la même — d'où une seule fonction, qui
+   demande à la question ce qu'elle accepte et comment le dire. */
+function answerNom(q) {
+  const text = field.value.trim();
+  field.value = "";
+  if (!text) return;
+
+  const i = match(text, net.stations.map((_, k) => k));
+  if (i < 0) {
+    q.misses++;
+    say("<em>inconnue au bataillon</em>", "far");
+  } else if (q.kind === "lettre" && plain(net.stations[i][0])[0] !== q.lettre) {
+    q.misses++;
+    say(`<em>${net.stations[i][0]}</em> ne commence pas par ${q.lettre.toUpperCase()}`, "far");
+  } else if (q.kind === "long" && lettresDe(i) < q.need) {
+    q.misses++;
+    say(`<em>${net.stations[i][0]}</em> · ${lettresDe(i)} lettres, il en faut ${q.need}`, "far");
+  } else {
+    const seconds = (performance.now() - started) / 1000;
+    const points = award(Math.round(600 +
+                         300 * Math.max(0, 1 - seconds / limite(q.kind))), true);
+    q.target = i;
+    Game.history.push({ kind: q.kind, name: net.stations[i][0], points });
+    say(`<em>${points} pts</em> · ${net.stations[i][0]}`, "near");
+    tally();
+    hideInputs();
+    reveal = { won: true, until: performance.now() + 2400 };
+    return;
+  }
+  tally();
+  if (q.misses >= 3) {
+    award(0, false);
+    Game.history.push({ kind: q.kind, name: null, points: 0 });
+    say(`<em>trois essais</em> · par exemple ${net.stations[q.target][0]}`, "far");
+    hideInputs();
+    reveal = { until: performance.now() + 2600 };
+  } else {
+    field.focus();
+  }
+}
+
 function closeTheme() {
   const q = Game.question;
   Game.history.push({ kind: "theme", name: q.theme.ask, hits: q.found.length,
@@ -286,51 +336,7 @@ function showChoices(options, onPick) {
   replay(choices);
 }
 
-/* Hasard reproductible. Une partie ordinaire tire au sort à chaque fois ; la grille du
-   jour, elle, doit poser les mêmes questions à tout le monde. On remplace alors la source
-   d'aléa par une suite déterministe semée par la date : même graine, même manche, partout
-   et sans serveur. Toute la fabrication des questions puise ici — les confettis, eux,
-   gardent le droit de tomber n'importe comment. */
-let alea = Math.random;
-
-/* Suite de Mulberry32 : trente-deux bits d'état, une qualité largement suffisante pour
-   distribuer des stations, et le même résultat sur tous les navigateurs. */
-const semer = graine => {
-  let a = graine >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-};
-
-/* Empreinte FNV-1a : transforme la date en graine. */
-const empreinte = texte => {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < texte.length; i++) {
-    h ^= texte.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-};
-
-/* Le jour courant, en heure locale — la grille change à minuit chez le joueur. */
-const jourNom = (d = new Date()) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
-    String(d.getDate()).padStart(2, "0")}`;
-
-const JOUR_CLE = "metro-jour";
-
-/* Le résultat de la grille du jour, s'il a déjà été joué aujourd'hui. */
-function jourFait() {
-  try {
-    const brut = JSON.parse(localStorage.getItem(JOUR_CLE) || "null");
-    return brut && brut.date === jourNom() ? brut : null;
-  } catch { return null; }                          // stockage indisponible
-}
-
-const shuffle = a => a.map(v => [alea(), v]).sort((x, y) => x[0] - y[0]).map(p => p[1]);
+const shuffle = a => a.map(v => [Math.random(), v]).sort((x, y) => x[0] - y[0]).map(p => p[1]);
 
 /* ---------- préparation ---------- */
 
@@ -399,6 +405,40 @@ addEventListener("metro:ready", () => {
     return { ...t, hits };
   }).filter(t => t.hits.length > t.need);
 
+  // les bouts de ligne, relevés sur le tracé le plus long de chaque ligne : les services
+  // partiels s'arrêtent en route et donneraient de faux terminus
+  const plusLong = new Map();
+  for (const p of net.patterns) {
+    const vu = plusLong.get(p[0]);
+    if (!vu || p[3].length > vu.length) plusLong.set(p[0], p[3]);
+  }
+  estTerminus = new Set();
+  for (const stops of plusLong.values()) {
+    estTerminus.add(stops[0]);
+    estTerminus.add(stops[stops.length - 1]);
+  }
+  termini = fame.filter(i => estTerminus.has(i));
+
+  // les initiales, des plus fournies aux plus avares : commencer par R est une chose,
+  // trouver une station en Y en est une autre
+  parInitiale = new Map();
+  net.stations.forEach((st, i) => {
+    const c = plain(st[0])[0];
+    if (!c || !/[a-z]/.test(c)) return;
+    if (!parInitiale.has(c)) parInitiale.set(c, []);
+    parInitiale.get(c).push(i);
+  });
+  initiales = [...parInitiale.entries()]
+    .filter(([, liste]) => liste.length >= 2)
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([c]) => c);
+
+  // les seuils de longueur : on ne garde que ceux qui laissent de quoi répondre
+  seuils = [];
+  for (let n = 9; n <= 30; n++) {
+    if (net.stations.filter((_, i) => lettresDe(i) >= n).length >= 3) seuils.push(n);
+  }
+
   playBtn.disabled = false;
   let garde = "provincial";
   try { garde = localStorage.getItem(MODE_CHOISI) || "provincial"; } catch { /* ignoré */ }
@@ -406,13 +446,6 @@ addEventListener("metro:ready", () => {
 });
 
 function showRecord() {
-  if (MODES[Game.mode].sceau) {                    // la grille du jour n'a pas de record
-    const fait = jourFait();
-    recordLine.textContent = fait
-      ? `déjà jouée · ${fait.score.toLocaleString("fr-FR")} pts`
-      : `grille du ${new Date().toLocaleDateString("fr-FR")} · ${ROUNDS} questions`;
-    return;
-  }
   let best = 0;
   try { best = +(localStorage.getItem(bestKey()) || 0); } catch { /* stockage indisponible */ }
   recordLine.textContent = best
@@ -480,6 +513,10 @@ document.querySelectorAll("#modes button").forEach(b => {
 /* Comparaison indulgente : accents, tirets, casse et ponctuation ne comptent pas. */
 const plain = t => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
   .toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/* Nombre de lettres d'un nom de station, espaces et traits d'union exclus : c'est ce
+   qu'un joueur compte spontanément quand on lui demande un nom « d'au moins n lettres ». */
+const lettresDe = i => plain(net.stations[i][0]).replace(/[^a-z0-9]/g, "").length;
 
 function edits(a, b) {
   let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
@@ -555,7 +592,7 @@ function window_(list, step, width = 0.45) {
 
 function graded(list, step, width = 0.45) {
   const slice = window_(list, step, width);
-  return slice.length ? slice[Math.floor(alea() * slice.length)] : null;
+  return slice.length ? slice[Math.floor(Math.random() * slice.length)] : null;
 }
 
 /* Les stations les plus fréquentées d'abord, les plus discrètes pour finir. */
@@ -589,13 +626,29 @@ const swatch = i =>
 /* Tire la manche : chaque forme de question au moins une fois, l'ordre suivant la
    difficulté, avec assez de jeu pour que deux parties ne se ressemblent pas. */
 function buildRound() {
+  // un mode peut avoir son propre catalogue, plus court que la manche : on le rebat
+  // autant de fois qu'il faut, en veillant à ne pas répéter une forme d'un tour à l'autre
+  const propres = MODES[Game.mode].formes;
+  if (propres) {
+    const picks = [];
+    while (picks.length < ROUNDS) {
+      let lot = shuffle(propres);
+      if (picks.length && lot[0] === picks[picks.length - 1] && lot.length > 1) {
+        lot = [lot[1], lot[0], ...lot.slice(2)];
+      }
+      picks.push(...lot);
+    }
+    picks.length = ROUNDS;
+    return picks;
+  }
+
   // une forme accessible pour ouvrir, le reste dans un désordre complet ; comme il y a
   // plus de formes que de questions, chaque partie en laisse une ou deux de côté
-  const opener = OPENERS[Math.floor(alea() * OPENERS.length)];
+  const opener = OPENERS[Math.floor(Math.random() * OPENERS.length)];
   const picks = [opener, ...shuffle(KINDS.filter(k => k !== opener))];
   // KINDS et ROUNDS ont la même taille : toutes les formes passent, aucune ne se répète
   while (picks.length < ROUNDS) {
-    picks.push(FILLERS[Math.floor(alea() * FILLERS.length)]);
+    picks.push(FILLERS[Math.floor(Math.random() * FILLERS.length)]);
   }
   picks.length = ROUNDS;
   return picks;
@@ -613,8 +666,8 @@ function apart(a, b) {
 function around(i, km) {
   const st = net.stations[i];
   const half = km * 1000 / M_PER_WORLD / 2;
-  const jx = (alea() - 0.5) * half;
-  const jy = (alea() - 0.5) * half;
+  const jx = (Math.random() - 0.5) * half;
+  const jy = (Math.random() - 0.5) * half;
   return {
     minX: st[4][0] + jx - half, maxX: st[4][0] + jx + half,
     minY: st[4][1] + jy - half, maxY: st[4][1] + jy + half,
@@ -641,8 +694,8 @@ function loosely(box, factor, jitter = 0.5) {
   const cx = (box.minX + box.maxX) / 2, cy = (box.minY + box.maxY) / 2;
   const w = (box.maxX - box.minX) * factor / 2;
   const h = (box.maxY - box.minY) * factor / 2;
-  const dx = (alea() - 0.5) * w * jitter;
-  const dy = (alea() - 0.5) * h * jitter;
+  const dx = (Math.random() - 0.5) * w * jitter;
+  const dy = (Math.random() - 0.5) * h * jitter;
   return { minX: cx + dx - w, maxX: cx + dx + w, minY: cy + dy - h, maxY: cy + dy + h };
 }
 
@@ -715,14 +768,14 @@ function impostor() {
 
   for (let essai = 0; essai < 90; essai++) {
     let nom;
-    if (alea() < 0.5 && generiques.length > 1) {
-      const a = generiques[Math.floor(alea() * generiques.length)];
-      const b = generiques[Math.floor(alea() * generiques.length)];
+    if (Math.random() < 0.5 && generiques.length > 1) {
+      const a = generiques[Math.floor(Math.random() * generiques.length)];
+      const b = generiques[Math.floor(Math.random() * generiques.length)];
       if (a === b || !b.suite) continue;
       nom = elide(a.mot, b.art, b.suite);
     } else {
-      const a = composes[Math.floor(alea() * composes.length)];
-      const b = composes[Math.floor(alea() * composes.length)];
+      const a = composes[Math.floor(Math.random() * composes.length)];
+      const b = composes[Math.floor(Math.random() * composes.length)];
       if (!a || !b || a === b) continue;
       nom = `${a.tete} - ${b.queue}`;
     }
@@ -750,7 +803,7 @@ function nextChoice() {
   const q = Game.question;
   const pool = byLine[q.line].filter(i => !q.seen.includes(i));
   if (!pool.length) return closeName();
-  const right = pool[Math.floor(alea() * pool.length)];
+  const right = pool[Math.floor(Math.random() * pool.length)];
   q.seen.push(right);
 
   const rank = fame.indexOf(right);
@@ -806,7 +859,7 @@ function pickLine(step, kind) {
   }
   const pool = net.lines.map((_, i) => i)
     .filter(i => byLine[i].length >= 15 && i !== Game.line);
-  return pool[Math.floor(alea() * pool.length)] ?? 0;
+  return pool[Math.floor(Math.random() * pool.length)] ?? 0;
 }
 
 function nextQuestion() {
@@ -837,7 +890,7 @@ function nextQuestion() {
   Game.lastKind = kind;
 
   if (kind === "landmark") {
-    const [lieu, lat, lon] = LANDMARKS[Math.floor(alea() * LANDMARKS.length)];
+    const [lieu, lat, lon] = LANDMARKS[Math.floor(Math.random() * LANDMARKS.length)];
     const proches = nearestTo(lat, lon);
     const bonne = proches[0].i;
     // les intruses viennent du voisinage : assez près pour hésiter, jamais les plus
@@ -902,7 +955,7 @@ function nextQuestion() {
     // on tire beaucoup de triplets, puis on choisit selon l'écart entre la paire la plus
     // longue et sa suivante : net, la réponse saute aux yeux ; serré, il faut mesurer
     const pool = fame.slice(0, 220);
-    const pick = () => pool[Math.floor(alea() * pool.length)];
+    const pick = () => pool[Math.floor(Math.random() * pool.length)];
     const draws = [];
     for (let n = 0; n < 240; n++) {
       const pairs = [];
@@ -1026,7 +1079,7 @@ function nextQuestion() {
     if (at > 0) decoys.push(stops[at - 1]);
     const spare = stops.filter((v, i) => Math.abs(i - at) > 1 && v !== target);
     while (decoys.length < 2 && spare.length) {
-      const other = spare.splice(Math.floor(alea() * spare.length), 1)[0];
+      const other = spare.splice(Math.floor(Math.random() * spare.length), 1)[0];
       if (!decoys.includes(other)) decoys.push(other);
     }
 
@@ -1108,10 +1161,99 @@ function nextQuestion() {
   } else if (kind === "spot") {
     const pool = byLine[Game.line].filter(i => !asked.has(i));
     const i = (pool.length ? pool : byLine[Game.line])[
-      Math.floor(alea() * (pool.length || byLine[Game.line].length))];
+      Math.floor(Math.random() * (pool.length || byLine[Game.line].length))];
     asked.add(i);
     Game.question = { kind: "spot", target: i, line: Game.line };
     ask(`${pill(Game.line)} <b>${net.stations[i][0]}</b>`, false, "Situe");
+  } else if (kind === "corresp") {
+    // les stations à correspondance, des plus évidentes aux plus obscures
+    const avec = fame.filter(i => net.stations[i][3].length >= 2);
+    const libres = avec.filter(i => !asked.has(i));
+    const target = graded(libres.length > 3 ? libres : avec, Game.step, 0.4) ?? avec[0];
+    asked.add(target);
+    const vraies = net.stations[target][3];
+    const cle = l => [...l].sort((a, b) => a - b).join(",");
+    // les leurres sont des jeux de lignes qui existent ailleurs sur le réseau, de même
+    // taille : inventer des combinaisons impossibles rendrait la réponse trop lisible
+    const vus = new Set([cle(vraies)]);
+    const leurres = [];
+    for (const i of shuffle(net.stations.map((_, k) => k))) {
+      if (net.stations[i][3].length !== vraies.length) continue;
+      const k = cle(net.stations[i][3]);
+      if (vus.has(k)) continue;
+      vus.add(k);
+      leurres.push(net.stations[i][3]);
+      if (leurres.length === 3) break;
+    }
+    Game.question = { kind: "corresp", target };
+    ask(`<b>${net.stations[target][0]}</b> ?`, false, "Quelles lignes desservent");
+    showChoices(shuffle([
+      { html: vraies.map(pill).join(" "), right: true },
+      ...leurres.map(l => ({ html: l.map(pill).join(" "), right: false })),
+    ]), opt => {
+      const seconds = (performance.now() - started) / 1000;
+      let juste = false;
+      if (opt.right) {
+        const points = award(Math.round(650 +
+                             250 * Math.max(0, 1 - seconds / limite("corresp"))), true);
+        Game.history.push({ kind: "corresp", name: net.stations[target][0], points });
+        say(`<em>${points} pts</em> · ${vraies.length} lignes à ${
+          net.stations[target][0]}`, "near");
+        juste = true;
+      } else {
+        award(0, false);
+        Game.history.push({ kind: "corresp", name: null, points: 0 });
+        say(`<em>raté</em> · c'était ${vraies.map(l => lineName(l)).join(", ")}`, "far");
+      }
+      tally();
+      hideInputs();
+      reveal = { won: juste, until: performance.now() + 2600 };
+    });
+
+  } else if (kind === "pasterminus") {
+    // trois vrais bouts de ligne, et un intrus d'autant plus discret que la manche avance
+    const trois = shuffle(termini).slice(0, 3);
+    const milieu = fame.filter(i => !estTerminus.has(i));
+    const target = graded(milieu, Game.step, 0.4) ?? milieu[0];
+    Game.question = { kind: "pasterminus", target };
+    ask("laquelle n'est pas un terminus ?", false, "Parmi ces stations,");
+    showChoices(shuffle([
+      ...trois.map(i => ({ label: net.stations[i][0], right: false, station: i })),
+      { label: net.stations[target][0], right: true, station: target },
+    ]), opt => {
+      const seconds = (performance.now() - started) / 1000;
+      let juste = false;
+      if (opt.right) {
+        const points = award(Math.round(600 +
+                             250 * Math.max(0, 1 - seconds / limite("pasterminus"))), true);
+        Game.history.push({ kind: "pasterminus", name: net.stations[target][0], points });
+        say(`<em>${points} pts</em> · ${net.stations[target][0]} est en pleine ligne`, "near");
+        juste = true;
+      } else {
+        award(0, false);
+        Game.history.push({ kind: "pasterminus", name: null, points: 0 });
+        say(`<em>${net.stations[opt.station][0]}</em> est bien un terminus · ` +
+            `c'était ${net.stations[target][0]}`, "far");
+      }
+      tally();
+      hideInputs();
+      reveal = { won: juste, until: performance.now() + 2600 };
+    });
+
+  } else if (kind === "lettre") {
+    const lettre = graded(initiales, Game.step, 0.5) ?? initiales[0];
+    Game.question = { kind: "lettre", lettre, misses: 0,
+                      target: parInitiale.get(lettre)[0] };
+    ask(`une station commençant par <b>${lettre.toUpperCase()}</b>`, false, "Écris");
+    openField("nom de station", false);
+
+  } else if (kind === "long") {
+    const need = graded(seuils, Game.step, 0.4) ?? seuils[0];
+    const exemples = net.stations.map((_, k) => k).filter(k => lettresDe(k) >= need);
+    Game.question = { kind: "long", need, misses: 0, target: exemples[0] };
+    ask(`une station d'au moins <b>${need} lettres</b>`, false, "Donne");
+    openField("nom de station", false);
+
   } else if (kind === "name") {
     const need = 3;
     Game.question = { kind: "name", line: Game.line, need, found: [], seen: [],
@@ -1182,10 +1324,7 @@ function shareText(grade) {
   const grid = Game.history
     .map(h => (v => v > 0.75 ? "🟩" : v > 0.25 ? "🟨" : "🟥")(success(h)))
     .join("");
-  const entete = MODES[Game.mode].sceau
-    ? `grille du ${new Date().toLocaleDateString("fr-FR")}`
-    : `mode ${MODES[Game.mode].nom.toLowerCase()}`;
-  return `La chasse aux stations · ${entete}\n` +
+  return `La chasse aux stations · mode ${MODES[Game.mode].nom.toLowerCase()}\n` +
          `${Game.score} pts · ${grade}\n${grid}\n` + location.href.split(/[?#]/)[0];
 }
 
@@ -1431,7 +1570,6 @@ Game.click = (px, py) => {
 };
 
 /* Décompte du temps accordé, et clôture d'office quand il est épuisé. */
-/* Décompte du temps accordé, et clôture d'office quand il est épuisé. */
 function tick(q) {
   const limit = limite(q.kind);
   const left = limit - (performance.now() - started) / 1000;
@@ -1508,6 +1646,22 @@ function tick(q) {
     const got = q.found.length;
     closeWards();
     say(`<em>temps écoulé</em> · ${got} sur ${q.need}`, got ? "near" : "far");
+  } else if (q.kind === "corresp") {
+    Game.history.push({ kind: "corresp", name: null, points: 0 });
+    say(`<em>temps écoulé</em> · c'était ${
+      net.stations[q.target][3].map(l => lineName(l)).join(", ")}`, "far");
+    hideInputs();
+    reveal = { until: performance.now() + 2600 };
+  } else if (q.kind === "pasterminus") {
+    Game.history.push({ kind: "pasterminus", name: null, points: 0 });
+    say(`<em>temps écoulé</em> · c'était ${net.stations[q.target][0]}`, "far");
+    hideInputs();
+    reveal = { until: performance.now() + 2600 };
+  } else if (q.kind === "lettre" || q.kind === "long") {
+    Game.history.push({ kind: q.kind, name: null, points: 0 });
+    say(`<em>temps écoulé</em> · par exemple ${net.stations[q.target][0]}`, "far");
+    hideInputs();
+    reveal = { until: performance.now() + 2600 };
   } else if (q.kind === "spot") {
     Game.history.push({ kind: "spot", name: net.stations[q.target][0],
                         d: Infinity, points: 0, missed: true });
@@ -1732,6 +1886,7 @@ Game.draw = ctx => {
       ctx.setLineDash([]);
     }
     dot(ctx, q.target, "#b3261e", true);
+    epingle(ctx, q.target);
   } else if (reveal) {
     const st = net.stations[q.target];
     aimZone(ctx, q.target, reveal.won);
@@ -1748,10 +1903,79 @@ Game.draw = ctx => {
       ctx.arc(reveal.at[0], reveal.at[1], 4, 0, 6.2832);
       ctx.fill();
     }
-    dot(ctx, q.target, "#b3261e", true);
+    dot(ctx, q.target, reveal.won ? "#1a7f37" : "#b3261e", true);
+    epingle(ctx, q.target);
   }
   ctx.restore();
 };
+
+/* Le repère tombe du ciel sur la bonne réponse. Chute accélérée par la pesanteur,
+   contact marqué par une onde, puis deux rebonds qui s'amortissent — l'ombre portée se
+   resserre à mesure qu'il approche du sol, ce qui donne la hauteur au regard.
+
+   Il est tracé au trait plutôt qu'écrit en emoji : selon la police disponible, 📍 tombe
+   sur un glyphe monochrome qui prend la couleur du pinceau, et disparaissait alors sur
+   la carte de nuit. Un dessin vectoriel a la même allure partout. */
+const CHUTE = 460;                               // durée de la chute, en millisecondes
+const REBOND = 300;
+const HAUTEUR = 230;                             // d'où il tombe, en pixels
+const AIGUILLE = 8;                              // rayon de la tête du repère
+
+function epingle(ctx, i) {
+  const st = net.stations[i];
+  const x = sx(st[4][0]), y = sy(st[4][1]);
+  const t = reveal && reveal.born ? performance.now() - reveal.born : CHUTE + REBOND;
+
+  let haut = 0;
+  if (t < CHUTE) {
+    const u = t / CHUTE;
+    haut = (1 - u * u) * HAUTEUR;                // la distance restante suit 1 - u²
+  } else if (t < CHUTE + REBOND) {
+    const u = (t - CHUTE) / REBOND;
+    haut = Math.abs(Math.sin(u * Math.PI * 2)) * (1 - u) * 26;
+  }
+
+  ctx.save();
+
+  if (t >= CHUTE && t < CHUTE + 340) {           // l'onde de choc, au contact
+    const u = (t - CHUTE) / 340;
+    ctx.beginPath();
+    ctx.arc(x, y, 6 + u * 28, 0, 6.2832);
+    ctx.strokeStyle = `rgba(232,69,60,${0.5 * (1 - u)})`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // l'ombre portée se resserre et se fonce à mesure que le repère approche du sol
+  const proche = 1 - Math.min(1, haut / HAUTEUR);
+  ctx.beginPath();
+  ctx.ellipse(x, y + 1, 3 + 5 * proche, 1.5 + 2 * proche, 0, 0, 6.2832);
+  ctx.fillStyle = `rgba(0,0,0,${0.05 + 0.18 * proche})`;
+  ctx.fill();
+
+  const pointe = y - haut;
+  const centre = pointe - AIGUILLE * 2.5;
+  const r = AIGUILLE;
+
+  ctx.beginPath();
+  ctx.moveTo(x - r, centre);
+  ctx.arc(x, centre, r, Math.PI, 2 * Math.PI, false);   // le capuchon, moitié supérieure
+  ctx.quadraticCurveTo(x + r * 0.92, centre + r * 0.95, x, pointe);
+  ctx.quadraticCurveTo(x - r * 0.92, centre + r * 0.95, x - r, centre);
+  ctx.closePath();
+  ctx.fillStyle = "#e8453c";
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = "rgba(255,255,255,.92)";
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(x, centre, r * 0.36, 0, 6.2832);
+  ctx.fillStyle = "#fff";
+  ctx.fill();
+
+  ctx.restore();
+}
 
 /* Zone dans laquelle une réponse vaut le score plein : on la montre à la correction,
    pour que le joueur voie de combien il s'en est fallu. */
@@ -1819,9 +2043,6 @@ function trainIn(after) {
 }
 
 function start() {
-  // le mode du jour rejoue toujours la même manche : le hasard est semé par la date,
-  // si bien que deux joueurs à l'autre bout de Paris tombent sur les mêmes questions
-  alea = MODES[Game.mode].sceau ? semer(empreinte(`chasse ${jourNom()}`)) : Math.random;
   document.body.classList.add("explored");
   wear("nuit");                                    // la partie se joue de nuit
   Game.playing = true;
@@ -1883,30 +2104,20 @@ function finish() {
     ? aimed.reduce((s, h) => s + h.d, 0) / aimed.length : null;
   const zones = done.filter(h => h.kind === "district");
   const links = done.filter(h =>
-    ["next", "odd", "which", "outside", "far", "landmark", "fake"].includes(h.kind));
+    ["next", "odd", "which", "outside", "far", "landmark", "fake",
+     "corresp", "pasterminus", "lettre", "long"].includes(h.kind));
   const quizzes = done.filter(h => h.kind === "theme" || h.kind === "name" || h.kind === "wards");
   const spotted = zones.reduce((s, h) => s + h.hits, 0);
   const wanted = zones.reduce((s, h) => s + h.need, 0);
 
-  // une grille du jour ne compte qu'une fois : la revanche se joue, mais ne s'inscrit pas
-  const sceau = MODES[Game.mode].sceau;
-  const revanche = sceau ? jourFait() : null;
-
   let best = 0;
   try { best = +(localStorage.getItem(bestKey()) || 0); } catch { /* stockage indisponible */ }
-  const record = Game.score > best && !revanche;
+  const record = Game.score > best;
   if (record) { try { localStorage.setItem(bestKey(), Game.score); } catch { /* ignoré */ } }
 
   const rate = done.length
     ? done.reduce((s, h) => s + success(h), 0) / done.length : 0;
   const grade = GRADES.find(g => rate >= g.min) || GRADES[GRADES.length - 1];
-
-  if (sceau && !revanche) {
-    try {
-      localStorage.setItem(JOUR_CLE, JSON.stringify(
-        { date: jourNom(), score: Game.score, grade: grade.title }));
-    } catch { /* ignoré */ }
-  }
 
   stop();
   over.innerHTML = `
@@ -1919,23 +2130,18 @@ function finish() {
     <p class="note">${grade.note}</p>
     <h2>${Game.score.toLocaleString("fr-FR")}</h2>
     <p class="sub">${Math.round(rate * 100)} % de réussite · ${
-      sceau
-        ? (revanche
-            ? `revanche · le résultat du jour reste ${revanche.score.toLocaleString("fr-FR")}`
-            : "résultat du jour enregistré")
-        : record ? "nouveau record"
-                 : `record : ${best ? best.toLocaleString("fr-FR") : "—"}`}</p>
+      record ? "nouveau record" : `record : ${best ? best.toLocaleString("fr-FR") : "—"}`}</p>
     <dl>
-      <dt>stations visées</dt><dd>${shots.length}</dd>
-      <dt>écart moyen</dt><dd>${avg !== null ? format(avg) : "—"}</dd>
+      ${shots.length ? `<dt>stations visées</dt><dd>${shots.length}</dd>
+      <dt>écart moyen</dt><dd>${avg !== null ? format(avg) : "—"}</dd>` : ""}
       ${zones.length ? `<dt>stations d'arrondissement</dt><dd>${spotted} / ${wanted}</dd>` : ""}
       ${links.length ? `<dt>questions de réseau</dt><dd>${
         links.filter(h => h.name).length} / ${links.length}</dd>` : ""}
       ${quizzes.length ? `<dt>devinettes de noms</dt><dd>${
         quizzes.reduce((s, h) => s + h.hits, 0)} / ${
         quizzes.reduce((s, h) => s + h.need, 0)}</dd>` : ""}
-      <dt>meilleur coup</dt><dd>${aimed.length
-        ? aimed.reduce((a, b) => a.d < b.d ? a : b).name : "—"}</dd>
+      ${aimed.length ? `<dt>meilleur coup</dt><dd>${
+        aimed.reduce((a, b) => a.d < b.d ? a : b).name}</dd>` : ""}
     </dl>
     <p class="grid">${Game.history
       .map(h => (v => v > 0.75 ? "🟩" : v > 0.25 ? "🟨" : "🟥")(success(h))).join("")}</p>
