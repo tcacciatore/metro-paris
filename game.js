@@ -1146,9 +1146,21 @@ function nextQuestion() {
       if (!decoys.includes(other)) decoys.push(other);
     }
 
-    Game.question = { kind: "next", line: Game.line, from: stops[at], target, toward };
-    ask(`quelle station suit <b>${net.stations[stops[at]][0]}</b> vers ` +
-        `<b>${net.stations[toward][0]}</b> ?`, false, "");
+    Game.question = { kind: "next", line: Game.line, from: stops[at], target, toward,
+                      // la rame quitte la station de départ et roule vers la réponse :
+                      // le temps qui passe devient une distance qui se réduit
+                      trajet: trajetEntre(Game.line, stops[at], target) };
+    ask(`la rame est direction <b>${net.stations[toward][0]}</b> · quelle station ` +
+        `vient après <b>${net.stations[stops[at]][0]}</b> ?`, false, "");
+    // on se rapproche du départ pour voir la rame avancer ; les noms restent masqués,
+    // la carte ne donne donc pas la réponse
+    if (Game.question.trajet) {
+      const a = net.stations[stops[at]][4], b = net.stations[target][4];
+      const demi = 2300 / M_PER_WORLD;    // ~4,6 km de côté : la rame avance visiblement
+      const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
+      flyTo(frameTo({ minX: cx - demi, maxX: cx + demi,
+                      minY: cy - demi, maxY: cy + demi }, 0.9, 0, fitScale * 9), 700);
+    }
     showChoices(shuffle([
       { label: net.stations[target][0], right: true, station: target },
       ...decoys.map(i => ({ label: net.stations[i][0], right: false, station: i })),
@@ -1159,12 +1171,14 @@ function nextQuestion() {
                              250 * Math.max(0, 1 - seconds / limite("next"))), true);
         Game.history.push({ kind: "next", name: net.stations[target][0], points });
         say(`<em>${points} pts</em> · ${net.stations[target][0]}`, "near");
+        Game.question.uClic = Math.min(1, elapsed(Game.question));
         reveal = { won: true, until: performance.now() + 2600 };
       } else {
         award(0, false);
         Game.history.push({ kind: "next", name: null, points: 0 });
         say(`<em>${net.stations[opt.station][0]}</em> · c'était ` +
             `${net.stations[target][0]}`, "far");
+        Game.question.uClic = Math.min(1, elapsed(Game.question));
         reveal = { won: false, until: performance.now() + 2800 };
       }
       tally();
@@ -1923,6 +1937,7 @@ Game.draw = ctx => {
     if (reveal) {
       dot(ctx, q.target, reveal.won ? "#1a7f37" : "#b3261e", true, west ? "right" : "left");
     }
+    rameEnRoute(ctx, q);
   } else if (q.kind === "odd") {
     if (reveal) {
       for (const i of q.shown) {
@@ -1974,6 +1989,70 @@ Game.draw = ctx => {
   }
   ctx.restore();
 };
+
+/* Où se situe une station le long du tracé de sa ligne, en distance depuis le départ.
+   Le sommet le plus proche suffit : les tracés comptent un point tous les quatre-vingts
+   mètres environ, soit bien moins que l'écart entre deux stations. */
+function surTrace(line, station) {
+  const voie = voies[line];
+  if (!voie || !voie.total) return null;
+  const [x, y] = net.stations[station][4];
+  let best = 0, bestD = Infinity;
+  for (let k = 0; k < voie.pts.length; k++) {
+    const d = Math.hypot(voie.pts[k][0] - x, voie.pts[k][1] - y);
+    if (d < bestD) { bestD = d; best = k; }
+  }
+  return voie.cumul[best];
+}
+
+/* Le trajet d'une station à la suivante, si les deux se trouvent bien sur le tracé
+   principal de la ligne — ce n'est pas le cas des branches desservies par un seul
+   service, et la question se joue alors sans rame. */
+function trajetEntre(line, a, b) {
+  const da = surTrace(line, a), db = surTrace(line, b);
+  if (da === null || db === null || da === db) return null;
+  return { a: da, b: db };
+}
+
+/* La rame en marche : elle quitte la station nommée au début de la question et atteint
+   la réponse quand le temps est écoulé. Répondre plus tôt la fait arriver aussitôt. */
+function rameEnRoute(ctx, q) {
+  const voie = voies[q.line];
+  if (!voie || !q.trajet) return;
+
+  const clic = q.uClic === undefined ? 0 : q.uClic;
+  const u = reveal
+    ? clic + (1 - clic) * Math.min(1, (performance.now() - (reveal.born || 0)) / 600)
+    : Math.min(1, elapsed(q));
+  const d = q.trajet.a + (q.trajet.b - q.trajet.a) * u;
+  const pas = (q.trajet.b - q.trajet.a) * 0.06;
+  const [x, y] = surVoie(voie, Math.max(0, Math.min(voie.total, d)));
+  const [x2, y2] = surVoie(voie, Math.max(0, Math.min(voie.total, d + pas)));
+
+  const px = sx(x), py = sy(y);
+  const angle = Math.atan2(sy(y2) - py, sx(x2) - px);
+  const couleur = net.lines[q.line][1];
+
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(angle);
+  ctx.shadowColor = couleur;
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = couleur;
+  ctx.beginPath();
+  ctx.roundRect(-11, -4, 22, 8, 4);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = skin.halo;
+  ctx.stroke();
+  // deux baies claires, pour qu'on lise une rame et non un jeton
+  ctx.fillStyle = skin.halo;
+  ctx.globalAlpha = 0.75;
+  ctx.fillRect(-6.5, -2, 5, 4);
+  ctx.fillRect(0.5, -2, 5, 4);
+  ctx.restore();
+}
 
 /* Le repère tombe du ciel sur la bonne réponse. Chute accélérée par la pesanteur,
    contact marqué par une onde, puis deux rebonds qui s'amortissent — l'ombre portée se
