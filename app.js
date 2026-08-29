@@ -405,10 +405,10 @@ function surVoie(voie, d) {
 
 function drawRames(ctx, t) {
   const zoom = Math.min(1.6, view.scale / fitScale);
-  const L = 5 + 5 * zoom;                          // longueur de la rame, en pixels
-  const E = 2 + 1.6 * zoom;                        // et sa largeur
+  const L = 9 + 8 * zoom;                          // longueur de la rame, en pixels
+  const E = 3.4 + 2.4 * zoom;                      // et sa largeur
   ctx.save();
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 1.2;
   ctx.strokeStyle = skin.halo;
   for (let i = 0; i < voies.length; i++) {
     const voie = voies[i];
