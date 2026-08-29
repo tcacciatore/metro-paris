@@ -789,6 +789,15 @@ const LANDMARKS = [
   ["la Butte aux Cailles", 48.8272, 2.3494],
 ];
 
+/* Le lieu et sa station partagent-ils un mot ? « l'Opéra Garnier » a pour réponse
+   « Opéra » : la question se répond sans rien connaître du plan, elle ne vaut rien. Les
+   mots courts sont ignorés, ce sont des articles. */
+function seRepond(lieu, station) {
+  const mots = t => plain(t).split(" ").filter(m => m.length > 3);
+  const dits = new Set(mots(station));
+  return mots(lieu).some(m => dits.has(m));
+}
+
 /* Stations les plus proches d'un point, de la plus proche à la plus lointaine. */
 function nearestTo(lat, lon) {
   return net.stations
@@ -953,16 +962,31 @@ function nextQuestion() {
   Game.lastKind = kind;
 
   if (kind === "landmark") {
-    const [lieu, lat, lon] = LANDMARKS[Math.floor(Math.random() * LANDMARKS.length)];
+    // on écarte les lieux dont la station la plus proche porte le même nom
+    const tirage = shuffle([...LANDMARKS]);
+    const retenu = tirage.find(([nom, la, lo]) =>
+      !seRepond(nom, net.stations[nearestTo(la, lo)[0].i][0])) || tirage[0];
+    const [lieu, lat, lon] = retenu;
     const proches = nearestTo(lat, lon);
     const bonne = proches[0].i;
     // les intruses viennent du voisinage : assez près pour hésiter, jamais les plus
     // proches, sinon la question deviendrait injuste
     const deux = shuffle(proches.slice(2, 8).map(o => o.i)).slice(0, 2);
+    // la portée du cercle : exactement ce qui sépare le lieu de la bonne réponse, pour
+    // qu'il la touche à la seconde où le temps s'épuise
+    const [lx, ly] = merc(lat, lon);
+    const monde = net.stations[bonne][4];
+    const portee = Math.hypot(lx - monde[0], ly - monde[1]) * M_PER_WORLD;
     Game.question = { kind: "landmark", lieu, at: [lat, lon], target: bonne,
-                      shown: [...deux, bonne] };
+                      shown: [...deux, bonne], portee };
     ask(`Vous allez à <b>${lieu}</b> : quelle station est la plus proche ?`,
         false, "");
+    // Le cadrage suit la portée : sans quoi un lieu collé à sa station donnerait un
+    // cercle invisible, et un lieu isolé un cercle qui déborde de l'écran. Bornes hautes
+    // et basses pour garder de quoi se repérer dans les deux cas.
+    const cote = Math.min(1400, Math.max(450, portee * 3)) / M_PER_WORLD;
+    flyTo(frameTo({ minX: lx - cote, maxX: lx + cote,
+                    minY: ly - cote, maxY: ly + cote }, 0.9, 0, fitScale * 12), 700);
     showChoices(shuffle([
       { label: net.stations[bonne][0], right: true, station: bonne },
       ...deux.map(i => ({ label: net.stations[i][0], right: false, station: i })),
@@ -973,11 +997,13 @@ function nextQuestion() {
                              250 * Math.max(0, 1 - seconds / limite("landmark"))), true);
         Game.history.push({ kind: "landmark", name: net.stations[bonne][0], points });
         say(`<em>${points} pts</em> · ${net.stations[bonne][0]}`, "near");
+        Game.question.uClic = Math.min(1, elapsed(Game.question));
       } else {
         award(0, false);
         Game.history.push({ kind: "landmark", name: null, points: 0 });
         say(`<em>${net.stations[opt.station][0]}</em> · c'était ` +
             `${net.stations[bonne][0]}`, "far");
+        Game.question.uClic = Math.min(1, elapsed(Game.question));
       }
       tally();
       hideInputs();
@@ -1665,31 +1691,15 @@ function tick(q) {
     hideInputs();
     reveal = { until: performance.now() + 3000 };
   } else if (q.kind === "landmark") {
-    if (reveal) {
-      // le lieu lui-même, puis les stations proposées
-      const [x, y] = merc(q.at[0], q.at[1]);
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(sx(x), sy(y), 7, 0, 6.2832);
-      ctx.fillStyle = "#f59e0b";
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = skin.halo;
-      ctx.stroke();
-      ctx.font = "600 12px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
-      ctx.textBaseline = "middle";
-      ctx.lineWidth = 3.5;
-      ctx.strokeStyle = skin.halo;
-      ctx.strokeText(q.lieu, sx(x) + 11, sy(y));
-      ctx.fillStyle = "#f59e0b";
-      ctx.fillText(q.lieu, sx(x) + 11, sy(y));
-      ctx.restore();
-      for (const i of q.shown) {
-        dot(ctx, i, i === q.target ? "#1a7f37" : "#b3261e", true);
-      }
-    }
+    Game.history.push({ kind: "landmark", name: null, points: 0 });
+    say(`<em>temps écoulé</em> · c'était ${net.stations[q.target][0]}`, "far");
+    hideInputs();
+    reveal = { until: performance.now() + 2800 };
   } else if (q.kind === "fake") {
-    if (reveal) for (const i of q.shown) dot(ctx, i, "#1a7f37", true);
+    Game.history.push({ kind: "fake", name: null, points: 0 });
+    say(`<em>temps écoulé</em> · l'imposteur était ${q.faux}`, "far");
+    hideInputs();
+    reveal = { until: performance.now() + 2800 };
   } else if (q.kind === "outside") {
     Game.history.push({ kind: "outside", name: null, points: 0 });
     say(`<em>temps écoulé</em> · ${net.stations[q.target][0]} est hors les murs`, "far");
@@ -1881,25 +1891,48 @@ Game.draw = ctx => {
       dot(ctx, q.best.b, "#1a7f37", true);
     }
   } else if (q.kind === "landmark") {
-    if (reveal) {
-      // le lieu lui-même, puis les stations proposées
-      const [x, y] = merc(q.at[0], q.at[1]);
+    // Le lieu est posé d'emblée, et un cercle s'ouvre autour de lui à la vitesse du
+    // chrono : la première station qu'il atteint est la réponse. Le temps cesse d'être
+    // une barre pour devenir une distance qu'on voit se combler. Rien n'est donné pour
+    // autant — les noms des stations restent masqués pendant la partie.
+    const [x, y] = merc(q.at[0], q.at[1]);
+    const px = sx(x), py = sy(y);
+
+    if (q.portee) {
+      const clic = q.uClic === undefined ? 0 : q.uClic;
+      const u = reveal
+        ? clic + (1 - clic) * Math.min(1, (performance.now() - (reveal.born || 0)) / 500)
+        : Math.min(1, elapsed(q));
       ctx.save();
       ctx.beginPath();
-      ctx.arc(sx(x), sy(y), 7, 0, 6.2832);
-      ctx.fillStyle = "#f59e0b";
+      ctx.arc(px, py, u * q.portee / mpp(), 0, 6.2832);
+      ctx.fillStyle = "rgba(245,158,11,.08)";
       ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = skin.halo;
+      ctx.setLineDash([5, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = `rgba(245,158,11,${0.35 + 0.45 * u})`;
       ctx.stroke();
-      ctx.font = "600 12px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
-      ctx.textBaseline = "middle";
-      ctx.lineWidth = 3.5;
-      ctx.strokeStyle = skin.halo;
-      ctx.strokeText(q.lieu, sx(x) + 11, sy(y));
-      ctx.fillStyle = "#f59e0b";
-      ctx.fillText(q.lieu, sx(x) + 11, sy(y));
       ctx.restore();
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(px, py, 7, 0, 6.2832);
+    ctx.fillStyle = "#f59e0b";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = skin.halo;
+    ctx.stroke();
+    ctx.font = "600 12px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = skin.halo;
+    ctx.strokeText(q.lieu, px + 11, py);
+    ctx.fillStyle = "#f59e0b";
+    ctx.fillText(q.lieu, px + 11, py);
+    ctx.restore();
+
+    if (reveal) {
       for (const i of q.shown) {
         dot(ctx, i, i === q.target ? "#1a7f37" : "#b3261e", true);
       }
