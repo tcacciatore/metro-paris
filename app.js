@@ -286,6 +286,9 @@ function drawBackground() {
   bgx.lineWidth = lw;
 
   if (blind) return;                              // question de couleur : tracés nus
+  // le voyage ne montre que la station en cours de parcours, dessinée par-dessus : les
+  // trois cents autres points n'apporteraient que de l'encombrement
+  if (window.Voyage && Voyage.actif) return;
   const hunt = window.Game && Game.playing;
 
   // les stations sont désormais ce que la carte donne à voir : elles restent visibles

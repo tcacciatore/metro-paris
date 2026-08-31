@@ -30,6 +30,11 @@ const MODES = {
     nom: "Lignes", questions: 10, ...REGLAGE,
     formes: ["spot", "name", "next", "odd", "wards"], choixLigne: true,
   },
+
+  /* Le voyage n'est pas une manche mais une course : la rame enchaîne les stations et ne
+     s'arrête qu'au bout de trois erreurs. Ni longueur ni chronomètre — c'est elle qui
+     donne le tempo, et elle accélère. Servi par voyage.js. */
+  voyage: { nom: "Voyage", questions: 0, ...REGLAGE, voyage: true },
 };
 
 const LIGNE_CHOISIE = "metro-ligne";
@@ -1574,6 +1579,7 @@ function nearest(px, py, pool) {
 }
 
 Game.click = (px, py) => {
+  if (window.Voyage && Voyage.actif) return;       // le voyage se joue aux boutons
   const q = Game.question;
   if (!q || reveal) return;
   if (performance.now() - started < 250) return;   // garde contre le double clic
@@ -1791,6 +1797,7 @@ const format = d => d < 1000 ? `${Math.round(d / 10) * 10} m`
 /* ---------- rendu de la couche de jeu ---------- */
 
 Game.draw = ctx => {
+  if (window.Voyage && Voyage.actif) return Voyage.draw(ctx);
   const q = Game.question;
   if (!q) return;
   if (reveal && !reveal.born) reveal.born = performance.now();
@@ -2231,6 +2238,8 @@ function trainIn(after) {
 }
 
 function start() {
+  // le voyage est un jeu à part entière : il a son propre départ
+  if (MODES[Game.mode].voyage) return Voyage.start();
   document.body.classList.add("explored");
   wear("nuit");                                    // la partie se joue de nuit
   Game.playing = true;
@@ -2270,6 +2279,7 @@ function start() {
 
 function stop() {
   wear("jour");
+  pips.hidden = false;
   showRecord();
   topInset = 0;
   if (bounds) flyTo(frameTo(bounds));              // la carte reprend sa vue d'ensemble
@@ -2296,6 +2306,12 @@ function finish() {
     ["next", "odd", "which", "outside", "far", "landmark", "fake",
      "corresp", "pasterminus", "lettre", "long"].includes(h.kind));
   const quizzes = done.filter(h => h.kind === "theme" || h.kind === "name" || h.kind === "wards");
+  // le voyage se juge à sa plus longue suite sans faute, pas à un total
+  const rames = done.filter(h => h.kind === "voyage");
+  let serie = 0, courante = 0;
+  for (const h of rames) {
+    if (h.name) { courante++; if (courante > serie) serie = courante; } else courante = 0;
+  }
   const spotted = zones.reduce((s, h) => s + h.hits, 0);
   const wanted = zones.reduce((s, h) => s + h.need, 0);
 
@@ -2325,6 +2341,8 @@ function finish() {
       ${shots.length ? `<dt>stations visées</dt><dd>${shots.length}</dd>
       <dt>écart moyen</dt><dd>${avg !== null ? format(avg) : "—"}</dd>` : ""}
       ${zones.length ? `<dt>stations d'arrondissement</dt><dd>${spotted} / ${wanted}</dd>` : ""}
+      ${rames.length ? `<dt>stations desservies</dt><dd>${rames.length}</dd>
+        <dt>plus longue série</dt><dd>${serie}</dd>` : ""}
       ${links.length ? `<dt>questions de réseau</dt><dd>${
         links.filter(h => h.name).length} / ${links.length}</dd>` : ""}
       ${quizzes.length ? `<dt>devinettes de noms</dt><dd>${
