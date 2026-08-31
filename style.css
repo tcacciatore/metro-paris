@@ -1389,3 +1389,28 @@ body.explored #modes button { padding: 5px 10px; font-size: 10.5px; }
   transform: scale(1.16);
   box-shadow: 0 0 0 2px var(--paper), 0 0 0 3.5px var(--ink);
 }
+
+/* ---------- le réglage du son ---------- */
+
+/* Discret en bas à droite : toujours atteignable, jamais dans le chemin — y compris
+   pendant une partie, où tout le reste s'efface. */
+#son {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--hair);
+  border-radius: 50%;
+  background: var(--panel);
+  backdrop-filter: blur(6px);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: .55;
+  transition: opacity .15s, border-color .15s;
+  z-index: 5;
+}
+#son:hover { opacity: 1; }
+#son.muet { opacity: .35; }

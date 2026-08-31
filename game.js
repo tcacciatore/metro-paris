@@ -1494,6 +1494,8 @@ function award(base, ok, x, y) {
   const points = Math.max(0, Math.round(base * mult));
   Game.score += points;
   Game.streak = ok ? Game.streak + 1 : 0;
+  // la note monte avec la série : on entend sa progression sans lire le compteur
+  if (window.Son) (ok ? Son.juste(Game.streak - 1) : Son.rate());
   showStreak();
   pop((points ? "+" + points : "raté") + (mult > 1 ? `  ×${mult}` : ""), x, y, ok);
   return points;
@@ -1681,9 +1683,16 @@ function tick(q) {
   const left = limit - (performance.now() - started) / 1000;
   timebar.firstElementChild.style.width = Math.max(0, left / limit * 100) + "%";
   timebar.classList.toggle("urgent", left < 5);
-  if (left > 0) return;
+  if (left > 0) {
+    if (left < 5 && window.Son) {                  // un battement par seconde, sur la fin
+      const reste = Math.ceil(left);
+      if (q.tic !== reste) { q.tic = reste; Son.tic(); }
+    }
+    return;
+  }
 
   timebar.className = "clock done";
+  if (window.Son) Son.portes();
   if (q.kind === "far") {
     Game.history.push({ kind: "far", name: null, points: 0 });
     say(`<em>temps écoulé</em> · la plus longue faisait ` +
@@ -2209,6 +2218,7 @@ function dot(ctx, i, color, named, side = "right") {
 /* Une rame traverse l'écran à toute allure : le temps qu'elle passe, la carte bascule
    en nuit et la première question est déjà prête derrière elle. */
 function trainIn(after) {
+  if (window.Son) Son.rame();
   rush.hidden = false;
   const rame = rush.firstElementChild;
   rame.style.animation = "none";
@@ -2297,6 +2307,7 @@ function finish() {
   const rate = done.length
     ? done.reduce((s, h) => s + success(h), 0) / done.length : 0;
   const grade = GRADES.find(g => rate >= g.min) || GRADES[GRADES.length - 1];
+  if (window.Son) Son.fin(rate);
 
   stop();
   over.innerHTML = `
@@ -2367,6 +2378,7 @@ function finish() {
       chromee ? "✦ Carte chromée ✦" : neuve ? "Nouvelle carte" : "Carte en double"
       } · collection ${Cards.total()} / ${net.stations.length}</p><div class="ecrin"></div>`;
     Cards.poser(butin.querySelector(".ecrin"), gagnee, chromee);
+    if (window.Son) setTimeout(() => Son.carte(chromee), 700);   // après l'arpège de fin
     if (chromee) confetti();
   }
 }
