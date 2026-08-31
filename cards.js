@@ -12,6 +12,7 @@ const RARETES = [
 
 const COLLECTION = "metro-collection";
 const CHROMEES = "metro-collection-chrome";
+const EXPERTS = "metro-experts";
 
 /* Comme les chromatiques de Pokémon : n'importe quelle station peut sortir en version
    chromée, quelle que soit sa rareté. C'est le hasard pur, un peu adouci par le score. */
@@ -22,6 +23,7 @@ let rangs = [];                  // rareté de chaque station, de 0 à 4
 let places = [];                 // place au classement de fréquentation
 let avoir = new Set();           // cartes déjà obtenues
 let brillantes = new Set();      // et celles qu'on a en version chromée
+let experts = new Set();         // lignes maîtrisées : une carte dorée chacune
 
 const Cards = { pret: false };
 window.Cards = Cards;
@@ -53,7 +55,8 @@ addEventListener("metro:ready", () => {
   try {
     avoir = new Set(JSON.parse(localStorage.getItem(COLLECTION) || "[]"));
     brillantes = new Set(JSON.parse(localStorage.getItem(CHROMEES) || "[]"));
-  } catch { avoir = new Set(); brillantes = new Set(); }
+    experts = new Set(JSON.parse(localStorage.getItem(EXPERTS) || "[]"));
+  } catch { avoir = new Set(); brillantes = new Set(); experts = new Set(); }
   Cards.pret = true;
 });
 
@@ -92,6 +95,16 @@ Cards.garder = (i, chromee) => {
 /* Une carte sort-elle chromée ? Une fois sur trente environ, un peu plus souvent
    quand la partie a été bonne. */
 Cards.chrome = score => Math.random() < 1 / (CHANCE_CHROME - Math.min(14, score / 1600));
+
+/* La carte d'expert d'une ligne, décernée quand on l'a maîtrisée des deux côtés. */
+Cards.expert = ligne => {
+  const neuve = !experts.has(ligne);
+  experts.add(ligne);
+  try { localStorage.setItem(EXPERTS, JSON.stringify([...experts])); } catch { /* ignoré */ }
+  return neuve;
+};
+Cards.estExpert = ligne => experts.has(ligne);
+Cards.experts = () => experts.size;
 
 Cards.possede = i => avoir.has(i);
 Cards.brille = i => brillantes.has(i);
@@ -192,6 +205,108 @@ function vignette(canvas, i) {
   ctx.stroke();
 }
 
+/* L'illustration d'une carte d'expert : la ligne entière, avec toutes ses stations. */
+function vignetteLigne(canvas, ligne) {
+  const ctx = canvas.getContext("2d");
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = canvas.clientWidth || 210, h = canvas.clientHeight || 120;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const formes = [];
+  const vues = new Set();
+  for (const p of net.patterns) {
+    if (p[0] !== ligne || vues.has(p[1])) continue;
+    vues.add(p[1]);
+    formes.push(p);
+  }
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of formes) {
+    for (const [x, y] of net.shapes[p[1]].world) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  const k = Math.min(w / (maxX - minX || 1), h / (maxY - minY || 1)) * 0.86;
+  const px = x => (x - (minX + maxX) / 2) * k + w / 2;
+  const py = y => (y - (minY + maxY) / 2) * k + h / 2;
+
+  ctx.fillStyle = "#171207";                       // fond chaud, assorti à l'or
+  ctx.fillRect(0, 0, w, h);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = net.lines[ligne][1];
+  for (const p of formes) {
+    const pts = net.shapes[p[1]].world;
+    ctx.beginPath();
+    ctx.moveTo(px(pts[0][0]), py(pts[0][1]));
+    for (let n = 1; n < pts.length; n++) ctx.lineTo(px(pts[n][0]), py(pts[n][1]));
+    ctx.stroke();
+  }
+
+  const jalons = new Set();
+  for (const p of net.patterns) {
+    if (p[0] !== ligne) continue;
+    for (const st of p[3]) jalons.add(st);
+  }
+  ctx.fillStyle = "#ffe6a8";
+  for (const st of jalons) {
+    ctx.beginPath();
+    ctx.arc(px(net.stations[st][4][0]), py(net.stations[st][4][1]), 1.9, 0, 6.2832);
+    ctx.fill();
+  }
+}
+
+/* La carte d'expert : une par ligne, dorée, décernée quand on a réussi la révision sans
+   faute et bouclé la ligne d'un bout à l'autre au voyage. Elle ne se tire pas au hasard,
+   elle se gagne — d'où sa place à part dans la collection. */
+Cards.dessineExpert = ligne => {
+  const l = net.lines[ligne];
+  const stops = new Set();
+  for (const p of net.patterns) if (p[0] === ligne) for (const st of p[3]) stops.add(st);
+  const bouts = lineEnds(ligne);
+  const wards = new Set();
+  if (paris) for (const st of stops) { const n = paris.stationDistrict[st]; if (n) wards.add(n); }
+
+  return `
+    <article class="carte or">
+      <span class="etincelles">${[1, 2, 3, 4, 5, 6, 7]
+        .map(n => `<i class="e${n}">✦</i>`).join("")}</span>
+      <header>
+        <span class="titre">Expert de la ligne</span>
+        <span class="trafic"><b class="pastille"
+          style="background:${l[1]};color:${l[2]}">${l[0]}</b></span>
+      </header>
+      <canvas class="vue"></canvas>
+      <div class="lignes">
+        <span class="lieu">${bouts.from} ↔ ${bouts.to}</span>
+      </div>
+      <dl class="pouvoirs">
+        <div><dt>Ligne parcourue</dt>
+          <dd>${stops.size} stations d'un terminus à l'autre</dd></div>
+        <div><dt>Sans une faute</dt>
+          <dd>révision impeccable et ligne bouclée${
+            wards.size ? ` · ${wards.size} arrondissements traversés` : ""}</dd></div>
+      </dl>
+      <footer>
+        <span class="rarete">★ Expert</span>
+        <span class="numero">ligne ${l[0]} / ${net.lines.length}</span>
+      </footer>
+    </article>`;
+};
+
+Cards.poserExpert = (hote, ligne) => {
+  hote.innerHTML = Cards.dessineExpert(ligne);
+  const toile = hote.querySelector(".vue");
+  if (toile) requestAnimationFrame(() => vignetteLigne(toile, ligne));
+  return hote.firstElementChild;
+};
+
 /* Le corps de la carte. */
 Cards.dessine = (i, chromee) => {
   const st = net.stations[i];
@@ -267,6 +382,16 @@ Cards.album = () => {
     </div>`;
   }).join("");
 
+  // les cartes d'expert d'abord : elles ne se tirent pas, elles se gagnent, et la ligne
+  // d'or en tête de collection donne un but à qui a déjà beaucoup de stations
+  const lignesJouables = net.lines.map((_, i) => i).filter(i => !/b$/i.test(net.lines[i][0]));
+  const sacres = lignesJouables.map(i => {
+    const l = net.lines[i], eu = experts.has(i);
+    return `<button class="sacre-jeton${eu ? " acquis" : ""}" data-ligne="${i}"
+       title="${eu ? "Expert de la ligne " + l[0] : "Ligne " + l[0] + " · à maîtriser"}"
+       ${eu ? "" : "disabled"}>${l[0]}</button>`;
+  }).join("");
+
   albumVue.innerHTML = `
     <div class="entete">
       <h2>Collection</h2>
@@ -274,10 +399,24 @@ Cards.album = () => {
         brillantes.size ? ` · ✦ ${brillantes.size} chromée${brillantes.size > 1 ? "s" : ""}` : ""}</span>
       <button class="fermer" title="Fermer">&times;</button>
     </div>
+    <section class="sacres">
+      <h3>Experts de ligne <span>${experts.size} / ${lignesJouables.length}</span></h3>
+      <p class="regle">révision sans faute et ligne bouclée d'un terminus à l'autre</p>
+      <div class="rangee">${sacres}</div>
+    </section>
     <div class="grille">${jetons}</div>`;
   albumVue.hidden = false;
 
   albumVue.querySelector(".fermer").onclick = () => { albumVue.hidden = true; };
+  albumVue.querySelector(".rangee").onclick = e => {
+    const jeton = e.target.closest(".sacre-jeton.acquis");
+    if (!jeton) return;
+    const loupe = document.createElement("div");
+    loupe.className = "loupe";
+    document.body.appendChild(loupe);
+    Cards.poserExpert(loupe, +jeton.dataset.ligne);
+    loupe.onclick = () => loupe.remove();
+  };
   albumVue.querySelector(".grille").onclick = e => {
     const jeton = e.target.closest(".jeton.eue");
     if (!jeton) return;

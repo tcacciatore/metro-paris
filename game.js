@@ -474,6 +474,32 @@ addEventListener("metro:ready", () => {
   setMode(garde);
 });
 
+/* La maîtrise d'une ligne : sans faute à la révision d'un côté, ligne bouclée d'un bout
+   à l'autre au voyage de l'autre. Les deux réunis décernent la carte d'expert et font
+   passer la pastille de la ligne à l'or. */
+const MAITRISE = "metro-maitrise";
+
+function maitrises() {
+  try { return JSON.parse(localStorage.getItem(MAITRISE) || "{}"); } catch { return {}; }
+}
+
+/* Enregistre un exploit. Renvoie vrai si la ligne vient d'être maîtrisée des deux côtés. */
+function marqueMaitrise(ligne, cle) {
+  const tout = maitrises();
+  const fiche = tout[ligne] || {};
+  const complet = () => !!(fiche.revision && fiche.voyage);
+  if (fiche[cle]) return false;                    // déjà acquis, rien de neuf
+  fiche[cle] = true;
+  tout[ligne] = fiche;
+  try { localStorage.setItem(MAITRISE, JSON.stringify(tout)); } catch { /* ignoré */ }
+  return complet();
+}
+
+const ligneMaitrisee = ligne => {
+  const fiche = maitrises()[ligne];
+  return !!(fiche && fiche.revision && fiche.voyage);
+};
+
 const choixLignes = document.getElementById("lignes");
 
 /* Le damier des seize lignes, dressé une fois le réseau chargé. */
@@ -482,8 +508,12 @@ function dresseLignes() {
   jouables = net.lines.map((_, i) => i).filter(i => !/b$/i.test(net.lines[i][0]));
   choixLignes.innerHTML = jouables.map(i => {
     const l = net.lines[i], bouts = lineEnds(i);
-    return `<button data-ligne="${i}" style="background:${l[1]};color:${l[2]}"
-             title="${bouts.from} ↔ ${bouts.to}">${l[0]}</button>`;
+    // une ligne maîtrisée prend l'or à la place de sa couleur : la teinte est portée par
+    // la feuille de style, on n'écrit donc pas de couleur en ligne dans ce cas
+    const or = ligneMaitrisee(i);
+    return `<button data-ligne="${i}" class="${or ? "or" : ""}"
+             ${or ? "" : `style="background:${l[1]};color:${l[2]}"`}
+             title="${bouts.from} ↔ ${bouts.to}${or ? " · maîtrisée" : ""}">${l[0]}</button>`;
   }).join("");
   choixLignes.querySelectorAll("button").forEach(b => {
     b.onclick = () => choisirLigne(+b.dataset.ligne);
@@ -2328,6 +2358,21 @@ function finish() {
   const grade = GRADES.find(g => rate >= g.min) || GRADES[GRADES.length - 1];
   if (window.Son) Son.fin(rate);
 
+  // Maîtrise d'une ligne : la révision sans une faute d'un côté, la ligne bouclée d'un
+  // terminus à l'autre au voyage de l'autre. Les deux réunis décernent la carte d'expert.
+  let sacre = -1;
+  if (MODES[Game.mode].choixLigne && ligneFixe !== null) {
+    const attendu = window.Voyage && Voyage.stops.length
+      ? Voyage.stops.length - 1 : byLine[ligneFixe].length - 1;
+    const parfait = MODES[Game.mode].voyage
+      ? rames.length > 0 && serie >= attendu
+      : done.length > 0 && rate === 1;
+    const cle = MODES[Game.mode].voyage ? "voyage" : "revision";
+    if (parfait && marqueMaitrise(ligneFixe, cle)) sacre = ligneFixe;
+    dresseLignes();                                // la pastille peut être passée à l'or
+    choisirLigne(ligneFixe);
+  }
+
   stop();
   over.innerHTML = `
     <figure class="reaction" data-cle="${grade.cle}">
@@ -2362,6 +2407,7 @@ function finish() {
       <button class="back">La carte</button>
       <button class="share" title="Copier le résultat">⧉</button>
     </div>
+    <div class="sacre" hidden></div>
     <div class="butin" hidden></div>`;
   over.hidden = false;
   // la réaction du grade, vidéo de préférence
@@ -2390,6 +2436,17 @@ function finish() {
   if (record) confetti();
 
   // la partie rapporte une carte, d'autant plus rare que le score est élevé
+  if (sacre >= 0 && window.Cards) {
+    Cards.expert(sacre);
+    const bloc = over.querySelector(".sacre");
+    bloc.hidden = false;
+    bloc.innerHTML = `<p class="sortie eclat">★ Ligne ${lineName(sacre)} maîtrisée ★</p>
+                      <div class="ecrin"></div>`;
+    Cards.poserExpert(bloc.querySelector(".ecrin"), sacre);
+    confetti();
+    if (window.Son) setTimeout(() => Son.carte(true), 400);
+  }
+
   const gagnee = window.Cards && Cards.tirage(Game.score);
   if (gagnee >= 0) {
     const chromee = Cards.chrome(Game.score);
