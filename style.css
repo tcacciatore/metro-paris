@@ -1325,11 +1325,29 @@ body.explored #album {
 
 /* ---------- le choix du mode ---------- */
 
+/* Deux groupes séparés : le jeu de base d'un côté, les deux modes qui se jouent sur une
+   ligne de l'autre. Le damier des lignes vient juste après le second — la disposition dit
+   d'elle-même à quoi il sert. */
 #modes {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
   margin-bottom: 12px;
+}
+#modes .etiquette {
+  display: block;
+  margin: 0 0 4px 6px;
+  color: var(--muted);
+  font-size: 9.5px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  text-align: left;
+}
+#modes .segments {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
   padding: 3px;
   border-radius: 20px;
   background: rgba(0, 0, 0, .06);
@@ -1352,10 +1370,9 @@ body.explored #album {
 #modes button:hover:not(.on) { color: var(--ink); }
 
 /* replié dans le coin, le choix reste possible mais discret */
-body.explored #modes {
-  margin-bottom: 8px;
-  padding: 2px;
-}
+body.explored #modes { margin-bottom: 8px; gap: 6px; }
+body.explored #modes .segments { padding: 2px; }
+body.explored #modes .etiquette { display: none; }
 body.explored #modes button { padding: 5px 10px; font-size: 10.5px; }
 
 /* ---------- l'illustration du mode ---------- */

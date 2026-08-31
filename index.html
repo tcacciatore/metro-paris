@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Métro de Paris — la chasse aux stations</title>
-<link rel="stylesheet" href="style.css?v=71">
+<link rel="stylesheet" href="style.css?v=76">
 </head>
 <body>
 <canvas id="map"></canvas>
@@ -24,9 +24,19 @@
   <div class="rainbow"></div>
   <h2>La chasse aux stations</h2>
   <div id="modes">
-    <button data-mode="metro" class="on">Métro</button>
-    <button data-mode="ligne">Lignes</button>
-    <button data-mode="voyage">Voyage</button>
+    <div class="groupe">
+      <span class="etiquette">Tout le réseau</span>
+      <div class="segments">
+        <button data-mode="metro" class="on">Exploration</button>
+      </div>
+    </div>
+    <div class="groupe">
+      <span class="etiquette">Sur une ligne</span>
+      <div class="segments">
+        <button data-mode="ligne">Révision</button>
+        <button data-mode="voyage">Voyage</button>
+      </div>
+    </div>
   </div>
   <div id="lignes" hidden></div>
   <p id="bouts" hidden></p>
@@ -97,10 +107,10 @@
 <div id="tooltip" hidden></div>
 
 
-<script src="app.js?v=71"></script>
-<script src="cards.js?v=71"></script>
-<script src="son.js?v=71"></script>
-<script src="game.js?v=71"></script>
-<script src="voyage.js?v=71"></script>
+<script src="app.js?v=76"></script>
+<script src="cards.js?v=76"></script>
+<script src="son.js?v=76"></script>
+<script src="game.js?v=76"></script>
+<script src="voyage.js?v=76"></script>
 </body>
 </html>

@@ -19,22 +19,25 @@ const REGLAGE = {
 };
 
 const MODES = {
-  /* Le classique : tout le réseau, toutes les formes de questions. */
-  metro: { nom: "Métro", questions: 20, ...REGLAGE },
+  /* L'exploration : tout le réseau, toutes les formes de questions. C'est le seul mode
+     qui ne demande pas de choisir une ligne au préalable. */
+  metro: { nom: "Exploration", questions: 20, ...REGLAGE },
 
   /* On choisit sa ligne avant de commencer, et la manche entière s'y tient. Les formes
      retenues sont celles qui portaient déjà sur une ligne — situer une station, la
      reconnaître, dire ce qui suit, repérer l'intruse, citer les arrondissements
      traversés — mais la ligne ne change plus d'une question à l'autre. */
+  /* Les deux modes qui se jouent sur une ligne choisie d'avance. La révision interroge
+     sous toutes les formes qui portent sur une ligne ; le voyage la parcourt. */
   ligne: {
-    nom: "Lignes", questions: 10, ...REGLAGE,
+    nom: "Révision", questions: 10, ...REGLAGE,
     formes: ["spot", "name", "next", "odd", "wards"], choixLigne: true,
   },
 
   /* Le voyage n'est pas une manche mais une course : la rame enchaîne les stations et ne
      s'arrête qu'au bout de trois erreurs. Ni longueur ni chronomètre — c'est elle qui
      donne le tempo, et elle accélère. Servi par voyage.js. */
-  voyage: { nom: "Voyage", questions: 0, ...REGLAGE, voyage: true },
+  voyage: { nom: "Voyage", questions: 0, ...REGLAGE, voyage: true, choixLigne: true },
 };
 
 const LIGNE_CHOISIE = "metro-ligne";
@@ -2342,6 +2345,7 @@ function finish() {
       <dt>écart moyen</dt><dd>${avg !== null ? format(avg) : "—"}</dd>` : ""}
       ${zones.length ? `<dt>stations d'arrondissement</dt><dd>${spotted} / ${wanted}</dd>` : ""}
       ${rames.length ? `<dt>stations desservies</dt><dd>${rames.length}</dd>
+        <dt>distance parcourue</dt><dd>${format(Voyage.parcouru)}</dd>
         <dt>plus longue série</dt><dd>${serie}</dd>` : ""}
       ${links.length ? `<dt>questions de réseau</dt><dd>${
         links.filter(h => h.name).length} / ${links.length}</dd>` : ""}

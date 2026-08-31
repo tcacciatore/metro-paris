@@ -6,8 +6,8 @@
    rame continue — c'est elle qui donne le tempo, pas un chronomètre. Elle accélère à
    mesure qu'on tient, et trois erreurs terminent le trajet.
 
-   Aux terminus, plutôt que de faire demi-tour sur les mêmes stations, la rame prend une
-   correspondance : le trajet erre sur le réseau et ne se répète jamais. */
+   Le trajet se tient sur la ligne choisie avant la partie : au terminus, la rame fait
+   demi-tour et repart dans l'autre sens. */
 (function () {
 
 const Voyage = {
@@ -21,6 +21,8 @@ const Voyage = {
   duree: 5,
   chaine: 0,                     // stations enchaînées sans faute
   vies: 3,
+  parcouru: 0,                   // mètres avalés depuis le départ
+  tronconM: 0,                   // longueur du tronçon en cours
   repondu: null,                 // "juste" | "rate", tant que le tronçon dure
   vus: [],                       // stations déjà desservies pendant le trajet
 };
@@ -49,16 +51,12 @@ function prendLigne(ligne, station) {
   return true;
 }
 
-/* Au bout de la ligne, on change : n'importe quelle autre ligne du terminus fera
-   l'affaire. À défaut, demi-tour. */
+/* Au bout de la ligne, demi-tour. L'indice est borné avant tout : une arrivée au terminus
+   peut l'avoir poussé hors du parcours, et lire une station qui n'y est pas ferait
+   dérailler tout le trajet. */
 function change() {
-  // l'indice est borné avant tout : une arrivée au terminus peut l'avoir poussé dehors,
-  // et lire une station hors du parcours ferait dérailler tout le trajet
   Voyage.index = Math.max(0, Math.min(Voyage.stops.length - 1, Voyage.index));
-  const ici = Voyage.stops[Voyage.index];
-  const autres = net.stations[ici][3].filter(l => l !== Voyage.ligne);
-  for (const l of shuffle(autres)) if (prendLigne(l, ici)) return;
-  Voyage.sens = -Voyage.sens;                      // ligne sans correspondance : demi-tour
+  Voyage.sens = -Voyage.sens;
 }
 
 /* ---------- un tronçon ---------- */
@@ -73,6 +71,8 @@ function troncon() {
   if (de === undefined || vers === undefined) return fin();
 
   Voyage.trajet = trajetEntre(Voyage.ligne, de, vers);
+  Voyage.tronconM = Voyage.trajet
+    ? Math.abs(Voyage.trajet.b - Voyage.trajet.a) * M_PER_WORLD : 0;
   Voyage.depart = performance.now();
   Voyage.duree = duree();
   Voyage.repondu = null;
@@ -90,9 +90,7 @@ function troncon() {
   const bout = Voyage.stops[Voyage.sens > 0 ? Voyage.stops.length - 1 : 0];
   ask(`${pill(Voyage.ligne)} vers <b>${net.stations[bout][0]}</b> · ` +
       `quelle station après <b>${net.stations[de][0]}</b> ?`, false, "");
-  hud.querySelector(".step").textContent =
-    `${Voyage.chaine} enchaînée${Voyage.chaine > 1 ? "s" : ""} · ` +
-    `${"●".repeat(Voyage.vies)}${"○".repeat(VIES - Voyage.vies)}`;
+  entete();
 
   // Les leurres sont pris au hasard sur la ligne, à l'écart du tronçon en cours : trois
   // stations qui se suivent donnaient un choix entre voisines, où l'on répond au hasard
@@ -133,6 +131,20 @@ function troncon() {
   cadre(de, vers);
 }
 
+/* Le compteur du bandeau : stations enchaînées, distance avalée, vies restantes. La
+   distance avance en continu, on ne réécrit donc la ligne que lorsqu'elle change. */
+let dernierEntete = "";
+
+function entete() {
+  const metres = Voyage.parcouru + Voyage.tronconM *
+    Math.min(1, (performance.now() - Voyage.depart) / 1000 / Voyage.duree);
+  const texte = `${Voyage.chaine} enchaînée${Voyage.chaine > 1 ? "s" : ""} · ` +
+    `${format(metres)} · ${"●".repeat(Voyage.vies)}${"○".repeat(VIES - Voyage.vies)}`;
+  if (texte === dernierEntete) return;
+  dernierEntete = texte;
+  hud.querySelector(".step").textContent = texte;
+}
+
 /* Le plan se recentre sur le tronçon en cours : la rame reste sous les yeux sans que la
    carte défile en continu, ce qui obligerait à repeindre tout le réseau à chaque image.
 
@@ -152,6 +164,8 @@ function cadre(de, vers) {
 
 /* L'arrivée : ce qui n'a pas été répondu compte comme une faute. */
 function arrive() {
+  Voyage.parcouru += Voyage.tronconM;              // le tronçon est bouclé
+  Voyage.tronconM = 0;
   if (!Voyage.repondu) {
     Voyage.chaine = 0;
     Voyage.vies--;
@@ -177,17 +191,17 @@ function fin() {
 /* ---------- déroulement ---------- */
 
 Voyage.start = function () {
-  // on monte dans une rame au hasard, sur une ligne qui a de la route devant elle
-  const lignes = net.lines.map((_, i) => i).filter(i => byLine[i].length >= 12);
-  const ligne = lignes[Math.floor(Math.random() * lignes.length)];
+  // la ligne est celle choisie au menu ; on monte à une station au hasard sur son parcours
+  const ligne = ligneFixe !== null ? ligneFixe : 0;
   const run = mainRun(ligne);
-  const depart = run[3][Math.floor(Math.random() * Math.max(1, run[3].length - 6))];
+  if (!run) return;
+  const depart = run[3][Math.floor(Math.random() * run[3].length)];
 
   // le tronçon et son horodatage sont remis à zéro : sans quoi le dessin, appelé dès la
   // première image, hériterait de ceux du trajet précédent et déclencherait une arrivée
   // avant même que la rame ne soit partie
-  Object.assign(Voyage, { actif: true, chaine: 0, vies: VIES, vus: [],
-                          repondu: null, trajet: null, depart: 0 });
+  Object.assign(Voyage, { actif: true, chaine: 0, vies: VIES, vus: [], repondu: null,
+                          trajet: null, depart: 0, parcouru: 0, tronconM: 0 });
   prendLigne(ligne, depart);
 
   Game.playing = true;
@@ -222,6 +236,24 @@ Voyage.draw = function (ctx) {
 
   timebar.firstElementChild.style.width = (100 - u * 100) + "%";
   timebar.classList.toggle("urgent", u > 0.72 && !Voyage.repondu);
+  entete();
+
+  // Les deux bouts du tronçon : celle qu'on quitte porte son nom, celle où l'on va est
+  // un point nu — c'est justement ce qu'il faut nommer. Elles sont dessinées avant la
+  // rame, qui doit passer par-dessus en arrivant.
+  const suivante = Voyage.stops[Voyage.index + Voyage.sens];
+  if (suivante !== undefined) {
+    const st = net.stations[suivante];
+    const x = sx(st[4][0]), y = sy(st[4][1]);
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, 6.2832);
+    ctx.fillStyle = skin.station;
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#8a8a8a";
+    ctx.stroke();
+  }
+  dot(ctx, Voyage.stops[Voyage.index], "#8a8a8a", true);
 
   const voie = voies[Voyage.ligne];
   if (voie && Voyage.trajet) {
@@ -250,9 +282,6 @@ Voyage.draw = function (ctx) {
     ctx.fillRect(1, -2.2, 6, 4.4);
     ctx.restore();
   }
-
-  // la station quittée reste nommée : c'est le point de repère de la question
-  dot(ctx, Voyage.stops[Voyage.index], "#8a8a8a", true);
 
   if (u >= 1) arrive();
 };
