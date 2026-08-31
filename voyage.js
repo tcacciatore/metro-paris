@@ -94,20 +94,17 @@ function troncon() {
     `${Voyage.chaine} enchaînée${Voyage.chaine > 1 ? "s" : ""} · ` +
     `${"●".repeat(Voyage.vies)}${"○".repeat(VIES - Voyage.vies)}`;
 
-  // les leurres viennent de la même ligne : deux stations proches, dont celle d'avant,
-  // qui punit qui se trompe de sens
-  const leurres = [];
-  const avant = Voyage.stops[Voyage.index - Voyage.sens];
-  if (avant !== undefined && avant !== vers) leurres.push(avant);
-  const reste = Voyage.stops.filter((v, i) =>
-    v !== vers && v !== de && v !== avant && Math.abs(i - Voyage.index) < 9);
-  for (const i of shuffle(reste)) {
-    if (leurres.length >= 2) break;
-    if (!leurres.includes(i)) leurres.push(i);
-  }
+  // Les leurres sont pris au hasard sur la ligne, à l'écart du tronçon en cours : trois
+  // stations qui se suivent donnaient un choix entre voisines, où l'on répond au hasard
+  // sans rien connaître du parcours.
+  const loin = Voyage.stops
+    .map((v, i) => ({ v, i }))
+    .filter(o => Math.abs(o.i - Voyage.index) > 2 && o.v !== vers && o.v !== de)
+    .map(o => o.v);
+  const leurres = shuffle(loin).slice(0, 2);
   while (leurres.length < 2) {                     // ligne très courte : on élargit
     const i = fame[Math.floor(Math.random() * 60)];
-    if (i !== vers && !leurres.includes(i)) leurres.push(i);
+    if (i !== vers && i !== de && !leurres.includes(i)) leurres.push(i);
   }
 
   showChoices(shuffle([
