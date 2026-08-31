@@ -76,8 +76,9 @@ const SUCCES = [
   { cle: "bouclee", rang: 4, tete: "🔁", nom: "Ligne bouclée",
     defi: "traverser une ligne d'un terminus à l'autre sans faute",
     test: b => b.bouclee },
+  // hors du voyage, aucune manche ne compte quarante questions : autant le dire
   { cle: "quarante", rang: 4, tete: "☄️", nom: "Quarante d'affilée",
-    defi: "enchaîner 40 bonnes réponses", test: b => b.serie >= 40 },
+    defi: "enchaîner 40 stations en Voyage", test: b => b.serie >= 40 },
   { cle: "vingtkm", rang: 4, tete: "🌍", nom: "Vingt kilomètres",
     defi: "parcourir 20 km en un seul voyage", test: b => b.distance >= 20000 },
   { cle: "assidu", rang: 4, tete: "📅", nom: "Usager assidu",

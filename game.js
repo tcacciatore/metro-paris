@@ -18,10 +18,17 @@ const REGLAGE = {
   pente: 0.7,                    // et ce qu'elle gagne d'ici la dernière
 };
 
+/* Chaque forme de question vit dans un seul mode, et l'axe de partage est celui que le
+   menu annonce : ce qui porte sur tout le réseau d'un côté, ce qui porte sur une ligne
+   de l'autre. Sans cette règle, la révision n'était qu'un sous-ensemble de l'exploration
+   restreint à une ligne — un filtre, pas un jeu. */
+const RESEAU = ["station", "hue", "which", "district", "far", "landmark",
+                "outside", "theme", "fake", "pasterminus", "corresp"];
+const SUR_LIGNE = ["spot", "name", "next", "odd", "wards", "lettre", "long"];
+
 const MODES = {
-  /* L'exploration : tout le réseau, toutes les formes de questions. C'est le seul mode
-     qui ne demande pas de choisir une ligne au préalable. */
-  metro: { nom: "Exploration", questions: 20, ...REGLAGE },
+  /* L'exploration : tout le réseau. Seul mode qui ne demande pas de choisir une ligne. */
+  metro: { nom: "Exploration", questions: 20, ...REGLAGE, formes: RESEAU },
 
   /* On choisit sa ligne avant de commencer, et la manche entière s'y tient. Les formes
      retenues sont celles qui portaient déjà sur une ligne — situer une station, la
@@ -31,7 +38,7 @@ const MODES = {
      sous toutes les formes qui portent sur une ligne ; le voyage la parcourt. */
   ligne: {
     nom: "Révision", questions: 10, ...REGLAGE,
-    formes: ["spot", "name", "next", "odd", "wards"], choixLigne: true,
+    formes: SUR_LIGNE, choixLigne: true,
   },
 
   /* Le voyage n'est pas une manche mais une course : la rame enchaîne les stations et ne
@@ -61,23 +68,7 @@ const LIMIT = { station: 15, district: 25, spot: 15, name: 30, wards: 35,
                 outside: 20, far: 20, fake: 20, landmark: 18,
                 corresp: 20, pasterminus: 22, lettre: 25, long: 28 };  // secondes, par type
 
-/* Toutes les formes de questions. Elles ne sont pas classées : la difficulté d'une manche
-   ne vient pas de l'ordre des types mais de ce qu'on tire à l'intérieur de chacun — plus
-   la manche avance, plus la station, l'arrondissement ou le thème sont retors. L'ordre,
-   lui, est entièrement rebattu à chaque partie. */
-const KINDS = ["station", "which", "hue", "name", "odd", "outside", "spot", "landmark",
-               "district", "far", "next", "fake", "theme", "wards",
-               "corresp", "pasterminus", "lettre", "long"];
-
-/* Formes assez accessibles pour ouvrir une manche. */
-const OPENERS = ["station", "which", "hue"];
-
-/* Formes admises en reprise quand la manche est plus longue que le catalogue : on évite
-   celles dont le vivier est le plus étroit, pour ne pas radoter. */
-const FILLERS = ["station", "spot", "which", "odd", "next", "outside", "far",
-                 "landmark", "fake", "hue", "district", "corresp", "pasterminus"];
-
-const NEEDS_LINE = new Set(["spot", "name", "wards", "next", "odd"]);
+const NEEDS_LINE = new Set(["spot", "name", "wards", "next", "odd", "lettre", "long"]);
 
 /* un record par mode : les deux ne se comparent pas */
 /* Le record est propre au mode — et, en mode ligne, propre à la ligne : battre son
@@ -174,9 +165,6 @@ let themes = [];
 let askedThemes = new Set();
 let estTerminus = new Set();     // stations en bout de ligne
 let termini = [];                // les mêmes, des plus courues aux plus discrètes
-let parInitiale = new Map();     // stations rangées par première lettre
-let initiales = [];              // lettres jouables, des plus fournies aux plus avares
-let seuils = [];                 // longueurs de nom jouables, de la plus permissive à la plus rude
 let ligneFixe = null;            // ligne imposée à toute la manche, en mode ligne
 let jouables = [];               // lignes proposées au choix : toutes sauf les bis
 let started = 0;                 // horodatage du début de la question
@@ -287,6 +275,9 @@ function answerNom(q) {
   } else if (q.kind === "long" && lettresDe(i) < q.need) {
     q.misses++;
     say(`<em>${net.stations[i][0]}</em> · ${lettresDe(i)} lettres, il en faut ${q.need}`, "far");
+  } else if (q.ligne != null && !net.stations[i][3].includes(q.ligne)) {
+    q.misses++;
+    say(`<em>${net.stations[i][0]}</em> n'est pas sur ${pill(q.ligne)}`, "far");
   } else {
     const seconds = (performance.now() - started) / 1000;
     const points = award(Math.round(600 +
@@ -438,28 +429,6 @@ addEventListener("metro:ready", () => {
     estTerminus.add(stops[stops.length - 1]);
   }
   termini = fame.filter(i => estTerminus.has(i));
-
-  // les initiales, des plus fournies aux plus avares : commencer par R est une chose,
-  // trouver une station en Y en est une autre
-  parInitiale = new Map();
-  net.stations.forEach((st, i) => {
-    const c = plain(st[0])[0];
-    if (!c || !/[a-z]/.test(c)) return;
-    if (!parInitiale.has(c)) parInitiale.set(c, []);
-    parInitiale.get(c).push(i);
-  });
-  initiales = [...parInitiale.entries()]
-    .filter(([, liste]) => liste.length >= 2)
-    .sort((a, b) => b[1].length - a[1].length)
-    .map(([c]) => c);
-
-  // Les seuils de longueur. Plafonnés à douze lettres : au-delà, la question ne demande
-  // plus de connaître le réseau mais de se souvenir d'un nom à rallonge, et une seule
-  // réponse traverse l'esprit. On ne garde que les seuils qui laissent de quoi répondre.
-  seuils = [];
-  for (let n = 9; n <= 12; n++) {
-    if (net.stations.filter((_, i) => lettresDe(i) >= n).length >= 3) seuils.push(n);
-  }
 
   dresseLignes();
   playBtn.disabled = false;
@@ -718,38 +687,22 @@ function pickHue(step) {
 const swatch = i =>
   `<span class="swatch" style="background:${net.lines[i][1]}"></span>`;
 
-/* Tire la manche : chaque forme de question au moins une fois, l'ordre suivant la
-   difficulté, avec assez de jeu pour que deux parties ne se ressemblent pas. */
+/* Tire la manche. Le catalogue du mode est plus court que la manche : on le rebat autant
+   de fois qu'il faut, en veillant à ne pas répéter une forme d'un tour à l'autre. */
 function buildRound() {
-  // un mode peut avoir son propre catalogue, plus court que la manche : on le rebat
-  // autant de fois qu'il faut, en veillant à ne pas répéter une forme d'un tour à l'autre
   let propres = MODES[Game.mode].formes;
   // une ligne courte n'a pas de quoi nourrir toutes les formes : 3bis ne traverse qu'un
   // arrondissement et compte quatre stations, de quoi situer et enchaîner, rien de plus
-  if (propres && ligneFixe !== null && byLine[ligneFixe].length < 8) {
+  if (ligneFixe !== null && byLine[ligneFixe].length < 8) {
     propres = propres.filter(f => f !== "wards" && f !== "name");
   }
-  if (propres) {
-    const picks = [];
-    while (picks.length < ROUNDS) {
-      let lot = shuffle(propres);
-      if (picks.length && lot[0] === picks[picks.length - 1] && lot.length > 1) {
-        lot = [lot[1], lot[0], ...lot.slice(2)];
-      }
-      picks.push(...lot);
-    }
-    picks.length = ROUNDS;
-    return picks;
-  }
-
-  // une forme accessible pour ouvrir, le reste dans un désordre complet ; comme il y a
-  // plus de formes que de questions, chaque partie en laisse une ou deux de côté
-  const opener = OPENERS[Math.floor(Math.random() * OPENERS.length)];
-  const picks = [opener, ...shuffle(KINDS.filter(k => k !== opener))];
-  // il y a un peu moins de formes que de questions : toutes passent, et les deux ou trois
-  // dernières places sont reprises parmi celles dont le vivier est le plus large
+  const picks = [];
   while (picks.length < ROUNDS) {
-    picks.push(FILLERS[Math.floor(Math.random() * FILLERS.length)]);
+    let lot = shuffle(propres);
+    if (picks.length && lot[0] === picks[picks.length - 1] && lot.length > 1) {
+      lot = [lot[1], lot[0], ...lot.slice(2)];
+    }
+    picks.push(...lot);
   }
   picks.length = ROUNDS;
   return picks;
@@ -1384,17 +1337,40 @@ function nextQuestion() {
     });
 
   } else if (kind === "lettre") {
-    const lettre = graded(initiales, Game.step, 0.5) ?? initiales[0];
-    Game.question = { kind: "lettre", lettre, misses: 0,
-                      target: parInitiale.get(lettre)[0] };
-    ask(`une station commençant par <b>${lettre.toUpperCase()}</b>`, false, "Écris");
+    // la question porte sur la ligne en cours : les initiales et les exemples sont donc
+    // relevés sur elle seule, sans quoi la réponse pourrait venir de n'importe où
+    const vivier = byLine[Game.line];
+    const parLettreIci = new Map();
+    for (const i of vivier) {
+      const c = plain(net.stations[i][0])[0];
+      if (!c || !/[a-z]/.test(c)) continue;
+      if (!parLettreIci.has(c)) parLettreIci.set(c, []);
+      parLettreIci.get(c).push(i);
+    }
+    const dispo = [...parLettreIci.entries()]
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([c]) => c);
+    if (!dispo.length) { Game.plan[Game.step] = "spot"; return nextQuestion(); }
+    const lettre = graded(dispo, Game.step, 0.5) ?? dispo[0];
+    Game.question = { kind: "lettre", lettre, ligne: Game.line, misses: 0,
+                      target: parLettreIci.get(lettre)[0] };
+    ask(`une station de ${pill(Game.line)} commençant par <b>${lettre.toUpperCase()}</b>`,
+        false, "Écris");
     openField("nom de station", false);
 
   } else if (kind === "long") {
-    const need = graded(seuils, Game.step, 0.4) ?? seuils[0];
-    const exemples = net.stations.map((_, k) => k).filter(k => lettresDe(k) >= need);
-    Game.question = { kind: "long", need, misses: 0, target: exemples[0] };
-    ask(`une station d'au moins <b>${need} lettres</b>`, false, "Donne");
+    const vivier = byLine[Game.line];
+    // les seuils tenables sur cette ligne : au moins deux stations doivent y répondre
+    const dispo = [];
+    for (let n = 9; n <= 12; n++) {
+      if (vivier.filter(i => lettresDe(i) >= n).length >= 2) dispo.push(n);
+    }
+    if (!dispo.length) { Game.plan[Game.step] = "spot"; return nextQuestion(); }
+    const need = graded(dispo, Game.step, 0.4) ?? dispo[0];
+    Game.question = { kind: "long", need, ligne: Game.line, misses: 0,
+                      target: vivier.find(i => lettresDe(i) >= need) };
+    ask(`une station de ${pill(Game.line)} d'au moins <b>${need} lettres</b>`,
+        false, "Donne");
     openField("nom de station", false);
 
   } else if (kind === "name") {
@@ -2357,8 +2333,15 @@ function finish() {
   const record = Game.score > best;
   if (record) { try { localStorage.setItem(bestKey(), Game.score); } catch { /* ignoré */ } }
 
-  const rate = done.length
-    ? done.reduce((s, h) => s + success(h), 0) / done.length : 0;
+  /* Le taux qui décerne le grade. En voyage, la part de bonnes réponses ne veut rien
+     dire : le trajet s'arrête toujours sur trois fautes, donc elle vaut mécaniquement
+     (n−3)/n et mesure la longueur du parcours, pas l'adresse — un trajet de quarante
+     stations décrochait le meilleur grade sans qu'on ait rien fait de remarquable. On
+     s'y fie donc à la plus longue série, une ligne entière valant la perfection. */
+  const LIGNE_ENTIERE = 30;
+  const rate = MODES[Game.mode].voyage
+    ? Math.min(1, serie / LIGNE_ENTIERE)
+    : done.length ? done.reduce((s, h) => s + success(h), 0) / done.length : 0;
   const grade = GRADES.find(g => rate >= g.min) || GRADES[GRADES.length - 1];
   if (window.Son) Son.fin(rate);
 
@@ -2388,7 +2371,9 @@ function finish() {
     <p class="grade">${grade.title}</p>
     <p class="note">${grade.note}</p>
     <h2>${Game.score.toLocaleString("fr-FR")}</h2>
-    <p class="sub">${Math.round(rate * 100)} % de réussite · ${
+    <p class="sub">${MODES[Game.mode].voyage
+      ? `${serie} station${serie > 1 ? "s" : ""} d'affilée`
+      : `${Math.round(rate * 100)} % de réussite`} · ${
       record ? "nouveau record" : `record : ${best ? best.toLocaleString("fr-FR") : "—"}`}</p>
     <dl>
       ${shots.length ? `<dt>stations visées</dt><dd>${shots.length}</dd>
