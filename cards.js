@@ -88,7 +88,7 @@ const SUCCES = [
 
 const parCle = new Map(SUCCES.map(s => [s.cle, s]));
 
-let obtenus = new Set();         // clés des succès décrochés
+let obtenus = new Map();         // clé du succès → date à laquelle il a été composté
 let experts = new Set();         // lignes maîtrisées : une carte dorée chacune
 let parties = 0;
 
@@ -97,16 +97,21 @@ window.Cards = Cards;
 
 addEventListener("metro:ready", () => {
   try {
-    obtenus = new Set(JSON.parse(localStorage.getItem(OBTENUS) || "[]"));
+    // l'ancien format ne gardait qu'une liste de clés : on le relit sans date plutôt que
+    // d'en inventer une, le billet portera alors son seul numéro de série
+    const brut = JSON.parse(localStorage.getItem(OBTENUS) || "[]");
+    obtenus = new Map(Array.isArray(brut)
+      ? brut.map(cle => [cle, null])
+      : Object.entries(brut));
     experts = new Set(JSON.parse(localStorage.getItem("metro-experts") || "[]"));
     parties = +(localStorage.getItem(PARTIES) || 0);
-  } catch { obtenus = new Set(); experts = new Set(); parties = 0; }
+  } catch { obtenus = new Map(); experts = new Set(); parties = 0; }
   Cards.pret = true;
 });
 
 function enregistre() {
   try {
-    localStorage.setItem(OBTENUS, JSON.stringify([...obtenus]));
+    localStorage.setItem(OBTENUS, JSON.stringify(Object.fromEntries(obtenus)));
     localStorage.setItem("metro-experts", JSON.stringify([...experts]));
     localStorage.setItem(PARTIES, String(parties));
   } catch { /* stockage indisponible */ }
@@ -121,7 +126,7 @@ Cards.verifie = bilan => {
   const neufs = SUCCES
     .filter(s => !obtenus.has(s.cle) && s.test(bilan))
     .map(s => s.cle);
-  for (const cle of neufs) obtenus.add(cle);
+  for (const cle of neufs) obtenus.set(cle, Date.now());
   enregistre();
   return neufs;
 };
@@ -136,6 +141,7 @@ Cards.expert = ligne => {
 Cards.estExpert = ligne => experts.has(ligne);
 Cards.experts = () => experts.size;
 Cards.total = () => obtenus.size + experts.size;
+Cards.composte = cle => obtenus.get(cle);
 /* Le catalogue entier : les succès, plus une carte d'expert par ligne jouable. */
 Cards.catalogue = () =>
   SUCCES.length + net.lines.filter(l => !/b$/i.test(l[0])).length;
@@ -143,90 +149,66 @@ Cards.rang = cle => (parCle.get(cle) || {}).rang ?? 0;
 
 /* ---------- dessin d'une carte ---------- */
 
-/* L'illustration d'un succès : le réseau entier, tracé dans la teinte de la rareté. Une
-   carte commune montre un réseau discret, une légendaire un réseau incandescent. */
-function vignetteReseau(canvas, rang) {
-  const ctx = canvas.getContext("2d");
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const w = canvas.clientWidth || 210, h = canvas.clientHeight || 120;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const s of net.stations) {
-    const [x, y] = s[4];
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-  }
-  const k = Math.min(w / (maxX - minX || 1), h / (maxY - minY || 1)) * 0.88;
-  const px = x => (x - (minX + maxX) / 2) * k + w / 2;
-  const py = y => (y - (minY + maxY) / 2) * k + h / 2;
-
-  ctx.fillStyle = "#0e1016";
-  ctx.fillRect(0, 0, w, h);
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = 1.6;
-  ctx.strokeStyle = RARETES[rang].eclat;
-  ctx.globalAlpha = 0.35 + rang * 0.14;
-  const vues = new Set();
-  for (const p of net.patterns) {
-    if (vues.has(p[1])) continue;
-    vues.add(p[1]);
-    const pts = net.shapes[p[1]].world;
-    ctx.beginPath();
-    ctx.moveTo(px(pts[0][0]), py(pts[0][1]));
-    for (let n = 1; n < pts.length; n++) ctx.lineTo(px(pts[n][0]), py(pts[n][1]));
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-}
-
 /* Le nombre d'étincelles monte avec le rang : les deux premiers n'en ont aucune, c'est
-   ce qui fait qu'une rare se remarque tout de suite dans la collection. */
+   ce qui fait qu'un billet rare se remarque tout de suite dans le carnet. */
 const PAILLETTES = [0, 0, 4, 6, 8];
 
+/* Le numéro de série. Il ne dit rien du jeu — c'est justement ce qui fait vrai : un
+   titre de transport porte toujours un numéro dont personne ne connaît la logique.
+   Déterministe, pour qu'un billet garde le sien d'une visite à l'autre. */
+function serie(cle) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < cle.length; i++) {
+    h ^= cle.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  const n = String((h >>> 0) % 100000000).padStart(8, "0");
+  return `${n.slice(0, 2)} ${n.slice(2, 5)} ${n.slice(5)}`;
+}
+
+/* Les classes, comme sur les vrais titres : la seconde pour le tout-venant, la première
+   pour ce qui se mérite, et des éditions au-delà. */
+const CLASSES = ["2e classe", "2e classe", "1re classe", "édition spéciale", "hors série"];
+
+const jour = ts => ts
+  ? new Date(ts).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" })
+  : null;
+
+/* Le billet. Format du carton : deux fois plus large que haut, une souche à gauche
+   séparée par un pointillé, la bande magnétique le long du bord inférieur, et le cachet
+   de compostage — la marque qui dit que le succès a bien été franchi. */
 Cards.dessine = cle => {
   const s = parCle.get(cle);
   if (!s) return "";
   const rarete = RARETES[s.rang];
-  const rangDansCatalogue = SUCCES.filter(o => o.rang === s.rang).length;
-  const brille = s.rang >= 2;
+  const date = jour(obtenus.get(cle));
 
   return `
-    <article class="carte ${rarete.cle}${brille ? " brille" : ""}">
-      ${brille ? '<span class="rayons"></span>' : ""}
+    <article class="billet ${rarete.cle}${s.rang >= 2 ? " brille" : ""}">
+      ${s.rang >= 2 ? '<span class="rayons"></span>' : ""}
       ${PAILLETTES[s.rang] ? `<span class="etincelles">${
         Array.from({ length: PAILLETTES[s.rang] }, (_, n) => `<i class="e${n + 1}">✦</i>`)
           .join("")}</span>` : ""}
-      <header>
-        <span class="titre">${s.nom}</span>
-        <span class="trafic"><i>succès</i></span>
-      </header>
-      <div class="scene">
-        <canvas class="vue" data-rang="${s.rang}"></canvas>
+      <div class="souche">
         <span class="embleme">${s.tete}</span>
+        <span class="classe">${CLASSES[s.rang]}</span>
       </div>
-      <div class="lignes">
-        <span class="lieu">${rarete.nom.toLowerCase()}</span>
+      <div class="corps">
+        <span class="reseau">Métro de Paris</span>
+        <h4 class="nom">${s.nom}</h4>
+        <p class="defi">${s.defi}</p>
+        <span class="pied">
+          <span class="numero">N<sup>o</sup> ${serie(cle)}</span>
+          <span class="rang">${"◆".repeat(s.rang + 1)} ${rarete.nom}</span>
+        </span>
       </div>
-      <dl class="pouvoirs">
-        <div><dt>Condition</dt><dd>${s.defi}</dd></div>
-      </dl>
-      <footer>
-        <span class="rarete">${"◆".repeat(s.rang + 1)} ${rarete.nom}</span>
-        <span class="numero">${rangDansCatalogue} de ce rang</span>
-      </footer>
+      ${date ? `<span class="cachet">composté<b>${date}</b></span>` : ""}
+      <span class="bande"></span>
     </article>`;
 };
 
 Cards.poser = (hote, cle) => {
   hote.innerHTML = Cards.dessine(cle);
-  const toile = hote.querySelector(".vue");
-  if (toile) requestAnimationFrame(() => vignetteReseau(toile, +toile.dataset.rang));
   return hote.firstElementChild;
 };
 
@@ -287,6 +269,9 @@ function vignetteLigne(canvas, ligne) {
   }
 }
 
+/* Maîtriser une ligne ne donne pas un billet mais un passe : l'objet d'à côté, celui
+   qu'on garde dans sa poche au lieu de le composter. Format d'une carte de transport,
+   la ligne en bandeau, son tracé en filigrane. */
 Cards.dessineExpert = ligne => {
   const l = net.lines[ligne];
   const stops = new Set();
@@ -296,29 +281,20 @@ Cards.dessineExpert = ligne => {
   if (paris) for (const st of stops) { const n = paris.stationDistrict[st]; if (n) wards.add(n); }
 
   return `
-    <article class="carte or">
+    <article class="passe">
       <span class="etincelles">${[1, 2, 3, 4, 5, 6, 7]
         .map(n => `<i class="e${n}">✦</i>`).join("")}</span>
-      <header>
-        <span class="titre">Expert de la ligne</span>
-        <span class="trafic"><b class="pastille"
-          style="background:${l[1]};color:${l[2]}">${l[0]}</b></span>
-      </header>
-      <canvas class="vue"></canvas>
-      <div class="lignes">
-        <span class="lieu">${bouts.from} ↔ ${bouts.to}</span>
+      <div class="bandeau" style="background:${l[1]};color:${l[2]}">
+        <span class="numero-ligne">${l[0]}</span>
+        <span class="mention">Expert de ligne</span>
       </div>
-      <dl class="pouvoirs">
-        <div><dt>Ligne parcourue</dt>
-          <dd>${stops.size} stations d'un terminus à l'autre</dd></div>
-        <div><dt>Sans une faute</dt>
-          <dd>révision impeccable et ligne bouclée${
-            wards.size ? ` · ${wards.size} arrondissements traversés` : ""}</dd></div>
-      </dl>
-      <footer>
-        <span class="rarete">★ Expert</span>
-        <span class="numero">ligne ${l[0]} / ${net.lines.length}</span>
-      </footer>
+      <canvas class="vue"></canvas>
+      <div class="dos">
+        <p class="bouts">${bouts.from} ↔ ${bouts.to}</p>
+        <p class="chiffres">${stops.size} stations${
+          wards.size ? ` · ${wards.size} arrondissements` : ""}</p>
+        <p class="merite">révision sans faute · ligne bouclée d'un terminus à l'autre</p>
+      </div>
     </article>`;
 };
 
@@ -352,7 +328,7 @@ Cards.album = () => {
     const cartes = lot.map(s => {
       const eu = obtenus.has(s.cle);
       return `<div class="jeton ${eu ? "eue " + r.cle : "absente"}" data-cle="${s.cle}">
-        <span class="nom">${eu ? s.nom : "?"}</span>
+        <span class="nom">${eu ? s.nom : "à composter"}</span>
         <span class="bas"><span class="quel">${s.defi}</span></span>
       </div>`;
     }).join("");
@@ -364,7 +340,7 @@ Cards.album = () => {
 
   albumVue.innerHTML = `
     <div class="entete">
-      <h2>Succès</h2>
+      <h2>Carnet</h2>
       <span class="compte">${obtenus.size} / ${SUCCES.length} · ✦ ${
         experts.size} ligne${experts.size > 1 ? "s" : ""} maîtrisée${
         experts.size > 1 ? "s" : ""}</span>
