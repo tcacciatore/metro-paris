@@ -453,9 +453,11 @@ addEventListener("metro:ready", () => {
     .sort((a, b) => b[1].length - a[1].length)
     .map(([c]) => c);
 
-  // les seuils de longueur : on ne garde que ceux qui laissent de quoi répondre
+  // Les seuils de longueur. Plafonnés à douze lettres : au-delà, la question ne demande
+  // plus de connaître le réseau mais de se souvenir d'un nom à rallonge, et une seule
+  // réponse traverse l'esprit. On ne garde que les seuils qui laissent de quoi répondre.
   seuils = [];
-  for (let n = 9; n <= 30; n++) {
+  for (let n = 9; n <= 12; n++) {
     if (net.stations.filter((_, i) => lettresDe(i) >= n).length >= 3) seuils.push(n);
   }
 

@@ -185,21 +185,32 @@ function vignetteReseau(canvas, rang) {
   ctx.globalAlpha = 1;
 }
 
+/* Le nombre d'étincelles monte avec le rang : les deux premiers n'en ont aucune, c'est
+   ce qui fait qu'une rare se remarque tout de suite dans la collection. */
+const PAILLETTES = [0, 0, 4, 6, 8];
+
 Cards.dessine = cle => {
   const s = parCle.get(cle);
   if (!s) return "";
   const rarete = RARETES[s.rang];
   const rangDansCatalogue = SUCCES.filter(o => o.rang === s.rang).length;
+  const brille = s.rang >= 2;
 
   return `
-    <article class="carte ${rarete.cle}">
+    <article class="carte ${rarete.cle}${brille ? " brille" : ""}">
+      ${brille ? '<span class="rayons"></span>' : ""}
+      ${PAILLETTES[s.rang] ? `<span class="etincelles">${
+        Array.from({ length: PAILLETTES[s.rang] }, (_, n) => `<i class="e${n + 1}">✦</i>`)
+          .join("")}</span>` : ""}
       <header>
         <span class="titre">${s.nom}</span>
         <span class="trafic"><i>succès</i></span>
       </header>
-      <canvas class="vue" data-rang="${s.rang}"></canvas>
-      <div class="lignes">
+      <div class="scene">
+        <canvas class="vue" data-rang="${s.rang}"></canvas>
         <span class="embleme">${s.tete}</span>
+      </div>
+      <div class="lignes">
         <span class="lieu">${rarete.nom.toLowerCase()}</span>
       </div>
       <dl class="pouvoirs">
