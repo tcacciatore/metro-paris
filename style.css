@@ -1350,24 +1350,27 @@ body.explored #modes button { padding: 5px 10px; font-size: 10.5px; }
   user-select: none;
   overflow: hidden;
 
-  /* Le poinçon : un vrai trou percé dans le carton, obtenu en masquant un disque. Le
-     relief passe donc du box-shadow au drop-shadow, qui suit la forme réelle de l'objet
-     — un box-shadow serait rogné par le masque, et l'ombre ne contournerait pas le trou. */
-  -webkit-mask: radial-gradient(circle 8px at 19px 22px, transparent 94%, #000 100%);
-  mask: radial-gradient(circle 8px at 19px 22px, transparent 94%, #000 100%);
+  /* Le poinçon : une encoche à cheval sur le bord, comme celle que laisse le composteur
+     — le carton est réellement entamé, on voit le fond à travers. Elle est obtenue en
+     masquant un disque centré sur l'arête gauche. Le relief passe donc du box-shadow au
+     drop-shadow, qui suit la forme réelle de l'objet et contourne l'encoche ; un
+     box-shadow, lui, serait rogné par le masque. */
+  -webkit-mask: radial-gradient(circle 11px at 0 50%, transparent 94%, #000 100%);
+  mask: radial-gradient(circle 11px at 0 50%, transparent 94%, #000 100%);
   filter: drop-shadow(0 7px 13px rgba(0, 0, 0, .5));
 }
 
-/* le bord du trou, ombré vers l'intérieur comme une découpe dans du carton */
+/* le pourtour de l'encoche, ombré vers l'intérieur comme une découpe dans du carton */
 .billet::before {
   content: "";
   position: absolute;
-  left: 11px;
-  top: 14px;
-  width: 16px;
-  height: 16px;
+  left: -11px;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  transform: translateY(-50%);
   border-radius: 50%;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .45), 0 1px 0 rgba(255, 255, 255, .55);
+  box-shadow: inset -1px 0 2px rgba(0, 0, 0, .45);
   pointer-events: none;
   z-index: 4;
 }
