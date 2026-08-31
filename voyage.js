@@ -78,6 +78,15 @@ function troncon() {
   Voyage.repondu = null;
   Voyage.vus.push(de);
 
+  // seule la ligne parcourue est tracée : le reste du réseau n'a rien à faire là, et
+  // la correspondance prise au terminus fait basculer l'affichage sur la nouvelle ligne
+  if (selected !== Voyage.ligne) {
+    selected = Voyage.ligne;
+    visible = new Set([Voyage.ligne]);
+    Game.line = Voyage.ligne;
+    bgDirty = true;
+  }
+
   const bout = Voyage.stops[Voyage.sens > 0 ? Voyage.stops.length - 1 : 0];
   ask(`${pill(Voyage.ligne)} vers <b>${net.stations[bout][0]}</b> · ` +
       `quelle station après <b>${net.stations[de][0]}</b> ?`, false, "");
@@ -128,13 +137,20 @@ function troncon() {
 }
 
 /* Le plan se recentre sur le tronçon en cours : la rame reste sous les yeux sans que la
-   carte défile en continu, ce qui obligerait à repeindre tout le réseau à chaque image. */
+   carte défile en continu, ce qui obligerait à repeindre tout le réseau à chaque image.
+
+   Le cadrage attend deux images : la question vient de changer, le bandeau n'a pas encore
+   sa nouvelle hauteur, et cadrer trop tôt place la rame dessous. */
 function cadre(de, vers) {
   const a = net.stations[de][4], b = net.stations[vers][4];
   const demi = 1700 / M_PER_WORLD;
   const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
-  flyTo(frameTo({ minX: cx - demi, maxX: cx + demi,
-                  minY: cy - demi, maxY: cy + demi }, 0.9, 0, fitScale * 10), 480);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (!Voyage.actif) return;
+    topInset = Math.min(hud.offsetHeight + 26, innerHeight * 0.42);
+    flyTo(frameTo({ minX: cx - demi, maxX: cx + demi,
+                    minY: cy - demi, maxY: cy + demi }, 0.9, 0, fitScale * 10), 480);
+  }));
 }
 
 /* L'arrivée : ce qui n'a pas été répondu compte comme une faute. */
