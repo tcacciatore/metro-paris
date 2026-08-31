@@ -1552,3 +1552,32 @@ body.explored #modes button { padding: 5px 10px; font-size: 10.5px; }
   box-shadow: 0 0 12px -1px rgba(212, 160, 23, .8);
 }
 #album-vue .sacre-jeton.acquis:hover { transform: scale(1.1); }
+
+/* ---------- la collection, devenue tableau de succès ---------- */
+
+/* Les succès sont rangés par difficulté, et ceux qui manquent affichent leur condition :
+   la collection sert autant à voir ce qu'on a qu'à savoir ce qu'il reste à tenter. */
+#album-vue .rang {
+  max-width: 980px;
+  margin: 0 auto 22px;
+}
+#album-vue .rang h3 {
+  margin: 0 0 9px;
+  font-size: 13px;
+  font-weight: 600;
+}
+#album-vue .rang h3 span { color: #8a92a6; font-variant-numeric: tabular-nums; }
+
+#album-vue .jeton .quel {
+  margin: 0;
+  letter-spacing: 0;
+  line-height: 1.35;
+}
+#album-vue .jeton .bas { align-items: flex-start; }
+#album-vue .jeton.eue { border-left-width: 3px; }
+
+/* l'emblème du succès, au-dessus de sa rareté */
+.carte .embleme { font-size: 17px; line-height: 1; }
+.carte .trafic i { font-style: normal; letter-spacing: .06em; text-transform: uppercase; }
+.carte.commune .trafic, .carte.peu .trafic, .carte.rare .trafic,
+.carte.epique .trafic, .carte.legende .trafic { color: #6b7280; font-size: 9px; }

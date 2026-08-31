@@ -1,130 +1,151 @@
-/* Les cartes à collectionner. Chaque station du réseau en est une : ses caractéristiques
-   ne sont pas inventées — correspondances, passages quotidiens, arrondissement — et sa
-   rareté en découle. Les nœuds du réseau sont les légendaires. */
+/* Les cartes à collectionner. Chacune récompense un succès précis : une condition
+   annoncée d'avance, que l'on remplit ou non. Rien n'est tiré au sort — la rareté d'une
+   carte dit exactement la difficulté de ce qu'il a fallu faire pour l'obtenir.
+
+   Les quatorze cartes d'expert, une par ligne, ferment la marche : elles demandent de
+   maîtriser une ligne des deux côtés, révision et voyage. */
 
 const RARETES = [
-  { nom: "Commune",     cle: "commune",  eclat: "#8b93a7", chance: 58 },
-  { nom: "Peu commune", cle: "peu",      eclat: "#3b82f6", chance: 25 },
-  { nom: "Rare",        cle: "rare",     eclat: "#a855f7", chance: 12 },
-  { nom: "Épique",      cle: "epique",   eclat: "#f59e0b", chance: 4 },
-  { nom: "Légendaire",  cle: "legende",  eclat: "#ef4444", chance: 1 },
+  { nom: "Commune",     cle: "commune",  eclat: "#8b93a7" },
+  { nom: "Peu commune", cle: "peu",      eclat: "#3b82f6" },
+  { nom: "Rare",        cle: "rare",     eclat: "#a855f7" },
+  { nom: "Épique",      cle: "epique",   eclat: "#f59e0b" },
+  { nom: "Légendaire",  cle: "legende",  eclat: "#ef4444" },
 ];
 
-const COLLECTION = "metro-collection";
-const CHROMEES = "metro-collection-chrome";
-const EXPERTS = "metro-experts";
+const OBTENUS = "metro-succes";
+const PARTIES = "metro-parties";
 
-/* Comme les chromatiques de Pokémon : n'importe quelle station peut sortir en version
-   chromée, quelle que soit sa rareté. C'est le hasard pur, un peu adouci par le score. */
-const CHANCE_CHROME = 30;
+/* Le catalogue. Chaque succès reçoit un bilan de fin de partie et dit s'il est rempli.
+   L'ordre des rangs est aussi celui de la difficulté : on ne décroche pas « quarante
+   d'affilée » avant « cinq d'affilée ». */
+const SUCCES = [
+  // ---- communes : les premiers pas -------------------------------------
+  { cle: "premier", rang: 0, tete: "🎫", nom: "Premier voyage",
+    defi: "terminer une partie", test: b => b.questions > 0 },
+  { cle: "mille", rang: 0, tete: "🪙", nom: "Ticket composté",
+    defi: "marquer 1 000 points en une partie", test: b => b.score >= 1000 },
+  { cle: "trois", rang: 0, tete: "🔗", nom: "Trois d'affilée",
+    defi: "enchaîner 3 bonnes réponses", test: b => b.serie >= 3 },
+  { cle: "quai", rang: 0, tete: "🎯", nom: "Pile sur le quai",
+    defi: "viser une station à moins de 200 mètres", test: b => b.meilleureVisee <= 200 },
+  { cle: "moitie", rang: 0, tete: "📖", nom: "La moitié du chemin",
+    defi: "réussir la moitié des questions d'une partie",
+    test: b => b.questions >= 8 && b.taux >= 0.5 },
 
-let flux = [];                   // passages quotidiens par station
-let rangs = [];                  // rareté de chaque station, de 0 à 4
-let places = [];                 // place au classement de fréquentation
-let avoir = new Set();           // cartes déjà obtenues
-let brillantes = new Set();      // et celles qu'on a en version chromée
+  // ---- peu communes ----------------------------------------------------
+  { cle: "cinq", rang: 1, tete: "🔥", nom: "Cinq d'affilée",
+    defi: "enchaîner 5 bonnes réponses", test: b => b.serie >= 5 },
+  { cle: "cinqmille", rang: 1, tete: "💶", nom: "Carnet complet",
+    defi: "marquer 5 000 points en une partie", test: b => b.score >= 5000 },
+  { cle: "kilometre", rang: 1, tete: "🚇", nom: "Un kilomètre",
+    defi: "parcourir 1 km en Voyage", test: b => b.distance >= 1000 },
+  { cle: "dixstations", rang: 1, tete: "🚉", nom: "Dix arrêts",
+    defi: "desservir 10 stations en un seul voyage", test: b => b.stations >= 10 },
+  { cle: "habitue", rang: 1, tete: "🥖", nom: "Habitué du réseau",
+    defi: "décrocher le grade d'habitué ou mieux",
+    test: b => ["habitue", "poinconneur", "titi"].includes(b.grade) },
+
+  // ---- rares -----------------------------------------------------------
+  { cle: "dix", rang: 2, tete: "⚡", nom: "Dix d'affilée",
+    defi: "enchaîner 10 bonnes réponses", test: b => b.serie >= 10 },
+  { cle: "dixmille", rang: 2, tete: "💎", nom: "Dix mille",
+    defi: "marquer 10 000 points en une partie", test: b => b.score >= 10000 },
+  { cle: "cinqkm", rang: 2, tete: "🛤️", nom: "Cinq kilomètres",
+    defi: "parcourir 5 km en Voyage", test: b => b.distance >= 5000 },
+  { cle: "poinconneur", rang: 2, tete: "🎺", nom: "Poinçonneur",
+    defi: "décrocher le grade de poinçonneur ou mieux",
+    test: b => ["poinconneur", "titi"].includes(b.grade) },
+  { cle: "precis", rang: 2, tete: "📍", nom: "Au mètre près",
+    defi: "viser une station à moins de 50 mètres", test: b => b.meilleureVisee <= 50 },
+
+  // ---- épiques ---------------------------------------------------------
+  { cle: "sansfaute", rang: 3, tete: "✨", nom: "Sans une faute",
+    defi: "réussir toutes les questions d'une Exploration",
+    test: b => b.mode === "metro" && b.questions >= 20 && b.taux === 1 },
+  { cle: "vingt", rang: 3, tete: "🌪️", nom: "Vingt d'affilée",
+    defi: "enchaîner 20 bonnes réponses", test: b => b.serie >= 20 },
+  { cle: "vingtmille", rang: 3, tete: "👑", nom: "Vingt mille",
+    defi: "marquer 20 000 points en une partie", test: b => b.score >= 20000 },
+  { cle: "dixkm", rang: 3, tete: "🧭", nom: "Dix kilomètres",
+    defi: "parcourir 10 km en Voyage", test: b => b.distance >= 10000 },
+  { cle: "titi", rang: 3, tete: "🤌", nom: "Titi parisien",
+    defi: "décrocher le meilleur grade", test: b => b.grade === "titi" },
+
+  // ---- légendaires -----------------------------------------------------
+  { cle: "bouclee", rang: 4, tete: "🔁", nom: "Ligne bouclée",
+    defi: "traverser une ligne d'un terminus à l'autre sans faute",
+    test: b => b.bouclee },
+  { cle: "quarante", rang: 4, tete: "☄️", nom: "Quarante d'affilée",
+    defi: "enchaîner 40 bonnes réponses", test: b => b.serie >= 40 },
+  { cle: "vingtkm", rang: 4, tete: "🌍", nom: "Vingt kilomètres",
+    defi: "parcourir 20 km en un seul voyage", test: b => b.distance >= 20000 },
+  { cle: "assidu", rang: 4, tete: "📅", nom: "Usager assidu",
+    defi: "jouer cinquante parties", test: b => b.parties >= 50 },
+  { cle: "reseau", rang: 4, tete: "🏆", nom: "Maître du réseau",
+    defi: "maîtriser les quatorze lignes", test: b => b.maitrisees >= 14 },
+];
+
+const parCle = new Map(SUCCES.map(s => [s.cle, s]));
+
+let obtenus = new Set();         // clés des succès décrochés
 let experts = new Set();         // lignes maîtrisées : une carte dorée chacune
+let parties = 0;
 
 const Cards = { pret: false };
 window.Cards = Cards;
 
 addEventListener("metro:ready", () => {
-  const parPattern = new Array(net.patterns.length).fill(0);
-  for (const tr of fleet) if (tr.today) parPattern[tr.pat]++;
-  flux = new Array(net.stations.length).fill(0);
-  net.patterns.forEach((p, k) => { for (const st of p[3]) flux[st] += parPattern[k]; });
-
-  // le classement de fréquentation : une donnée que la carte est seule à donner, et qui
-  // se compare d'une carte à l'autre — « 3e station la plus desservie », ça parle
-  places = new Array(net.stations.length);
-  net.stations
-    .map((_, i) => i)
-    .sort((a, b) => flux[b] - flux[a])
-    .forEach((i, k) => { places[i] = k + 1; });
-
-  // le seuil qui sépare une station commune d'une station courue
-  const seuil = [...flux].sort((a, b) => a - b)[Math.floor(flux.length * 0.6)];
-  rangs = net.stations.map((st, i) => {
-    const n = st[3].length;
-    if (n >= 4) return 4;
-    if (n === 3) return 3;
-    if (n === 2) return 2;
-    return flux[i] >= seuil ? 1 : 0;
-  });
-
   try {
-    avoir = new Set(JSON.parse(localStorage.getItem(COLLECTION) || "[]"));
-    brillantes = new Set(JSON.parse(localStorage.getItem(CHROMEES) || "[]"));
-    experts = new Set(JSON.parse(localStorage.getItem(EXPERTS) || "[]"));
-  } catch { avoir = new Set(); brillantes = new Set(); experts = new Set(); }
+    obtenus = new Set(JSON.parse(localStorage.getItem(OBTENUS) || "[]"));
+    experts = new Set(JSON.parse(localStorage.getItem("metro-experts") || "[]"));
+    parties = +(localStorage.getItem(PARTIES) || 0);
+  } catch { obtenus = new Set(); experts = new Set(); parties = 0; }
   Cards.pret = true;
 });
 
-/* Tire une carte. Un bon score ouvre les raretés : à 20 000 points, une légendaire
-   devient dix fois plus probable qu'à zéro. */
-Cards.tirage = score => {
-  if (!Cards.pret) return -1;
-  const faveur = Math.min(1, score / 22000);
-  const poids = RARETES.map((r, k) => r.chance * (1 + faveur * k * 2.2));
-  const total = poids.reduce((a, b) => a + b, 0);
-  let tirage = Math.random() * total, rang = 0;
-  for (let k = 0; k < poids.length; k++) {
-    if ((tirage -= poids[k]) <= 0) { rang = k; break; }
-  }
-  // on préfère une carte encore absente de la collection, à rareté égale
-  for (let essai = rang; essai >= 0; essai--) {
-    const pool = net.stations.map((_, i) => i).filter(i => rangs[i] === essai);
-    if (!pool.length) continue;
-    const neuves = pool.filter(i => !avoir.has(i));
-    const choix = neuves.length ? neuves : pool;
-    return choix[Math.floor(Math.random() * choix.length)];
-  }
-  return -1;
-};
-
-Cards.garder = (i, chromee) => {
-  const neuve = chromee ? !brillantes.has(i) : !avoir.has(i);
-  (chromee ? brillantes : avoir).add(i);
+function enregistre() {
   try {
-    localStorage.setItem(COLLECTION, JSON.stringify([...avoir]));
-    localStorage.setItem(CHROMEES, JSON.stringify([...brillantes]));
-  } catch { /* ignoré */ }
-  return neuve;
+    localStorage.setItem(OBTENUS, JSON.stringify([...obtenus]));
+    localStorage.setItem("metro-experts", JSON.stringify([...experts]));
+    localStorage.setItem(PARTIES, String(parties));
+  } catch { /* stockage indisponible */ }
+}
+
+/* Confronte le bilan d'une partie au catalogue et renvoie les succès qui viennent d'être
+   décrochés, du plus commun au plus rare — c'est l'ordre dans lequel on les montrera. */
+Cards.verifie = bilan => {
+  if (!Cards.pret) return [];
+  parties++;
+  bilan.parties = parties;
+  const neufs = SUCCES
+    .filter(s => !obtenus.has(s.cle) && s.test(bilan))
+    .map(s => s.cle);
+  for (const cle of neufs) obtenus.add(cle);
+  enregistre();
+  return neufs;
 };
 
-/* Une carte sort-elle chromée ? Une fois sur trente environ, un peu plus souvent
-   quand la partie a été bonne. */
-Cards.chrome = score => Math.random() < 1 / (CHANCE_CHROME - Math.min(14, score / 1600));
-
-/* La carte d'expert d'une ligne, décernée quand on l'a maîtrisée des deux côtés. */
 Cards.expert = ligne => {
   const neuve = !experts.has(ligne);
   experts.add(ligne);
-  try { localStorage.setItem(EXPERTS, JSON.stringify([...experts])); } catch { /* ignoré */ }
+  enregistre();
   return neuve;
 };
+
 Cards.estExpert = ligne => experts.has(ligne);
 Cards.experts = () => experts.size;
-
-Cards.possede = i => avoir.has(i);
-Cards.brille = i => brillantes.has(i);
-Cards.total = () => avoir.size;
-Cards.totalChrome = () => brillantes.size;
-Cards.rang = i => rangs[i];
-Cards.flux = i => flux[i];
-Cards.place = i => places[i];
+Cards.total = () => obtenus.size + experts.size;
+/* Le catalogue entier : les succès, plus une carte d'expert par ligne jouable. */
+Cards.catalogue = () =>
+  SUCCES.length + net.lines.filter(l => !/b$/i.test(l[0])).length;
+Cards.rang = cle => (parCle.get(cle) || {}).rang ?? 0;
 
 /* ---------- dessin d'une carte ---------- */
 
-const ordinal2 = n => n === 1 ? "1er" : n + "e";
-/* « station » est féminin : la première station, pas le premier. */
-const ordinale = n => n === 1 ? "1re" : n + "e";
-
-/* L'illustration : les lignes qui desservent la station, et elles seules, tracées sur
-   toute leur longueur. Un carré de quartier pris au hasard se ressemblait d'une carte à
-   l'autre ; le parcours entier d'une ligne a une silhouette reconnaissable, et la place
-   de la station dessus se lit d'un coup d'œil. */
-function vignette(canvas, i) {
+/* L'illustration d'un succès : le réseau entier, tracé dans la teinte de la rareté. Une
+   carte commune montre un réseau discret, une légendaire un réseau incandescent. */
+function vignetteReseau(canvas, rang) {
   const ctx = canvas.getContext("2d");
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = canvas.clientWidth || 210, h = canvas.clientHeight || 120;
@@ -132,78 +153,71 @@ function vignette(canvas, i) {
   canvas.height = h * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  const st = net.stations[i];
-  const siennes = st[3];
-
-  // un seul tracé par forme, et seulement pour les lignes qui desservent la station
-  const formes = [];
-  const vues = new Set();
-  for (const p of net.patterns) {
-    if (!siennes.includes(p[0]) || vues.has(p[1])) continue;
-    vues.add(p[1]);
-    formes.push(p);
-  }
-
-  // le cadrage se prend sur ces tracés : chaque carte s'ajuste à ses propres lignes
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const p of formes) {
-    for (const [x, y] of net.shapes[p[1]].world) {
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    }
+  for (const s of net.stations) {
+    const [x, y] = s[4];
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
   }
-  const k = Math.min(w / (maxX - minX || 1), h / (maxY - minY || 1)) * 0.86;
+  const k = Math.min(w / (maxX - minX || 1), h / (maxY - minY || 1)) * 0.88;
   const px = x => (x - (minX + maxX) / 2) * k + w / 2;
   const py = y => (y - (minY + maxY) / 2) * k + h / 2;
 
   ctx.fillStyle = "#0e1016";
   ctx.fillRect(0, 0, w, h);
-
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.lineWidth = 4;
-  for (const p of formes) {
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = RARETES[rang].eclat;
+  ctx.globalAlpha = 0.35 + rang * 0.14;
+  const vues = new Set();
+  for (const p of net.patterns) {
+    if (vues.has(p[1])) continue;
+    vues.add(p[1]);
     const pts = net.shapes[p[1]].world;
-    ctx.strokeStyle = net.lines[p[0]][1];
     ctx.beginPath();
     ctx.moveTo(px(pts[0][0]), py(pts[0][1]));
     for (let n = 1; n < pts.length; n++) ctx.lineTo(px(pts[n][0]), py(pts[n][1]));
     ctx.stroke();
   }
-
-  // Les stations de ces mêmes lignes, en jalons. Ils se posent sur le tracé : trop gros,
-  // ils le recouvrent entièrement et la carte n'est plus qu'un chapelet de points blancs.
-  // Leur taille suit donc leur nombre, et ils laissent la couleur transparaître.
-  const jalons = new Set();
-  for (const p of net.patterns) {
-    if (!siennes.includes(p[0])) continue;
-    for (const s of p[3]) jalons.add(s);
-  }
-  const grain = jalons.size > 120 ? 1 : jalons.size > 60 ? 1.4 : 1.9;
-  ctx.fillStyle = "rgba(255, 255, 255, .8)";
-  for (const s of jalons) {
-    if (s === i) continue;
-    ctx.beginPath();
-    ctx.arc(px(net.stations[s][4][0]), py(net.stations[s][4][1]), grain, 0, 6.2832);
-    ctx.fill();
-  }
-
-  // la station de la carte, cerclée de la couleur de sa première ligne
-  const x = px(st[4][0]), y = py(st[4][1]);
-  ctx.beginPath();
-  ctx.arc(x, y, 11, 0, 6.2832);
-  ctx.fillStyle = "rgba(255,255,255,.14)";
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x, y, 6, 0, 6.2832);
-  ctx.fillStyle = "#fff";
-  ctx.fill();
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = net.lines[siennes[0]][1];
-  ctx.stroke();
+  ctx.globalAlpha = 1;
 }
+
+Cards.dessine = cle => {
+  const s = parCle.get(cle);
+  if (!s) return "";
+  const rarete = RARETES[s.rang];
+  const rangDansCatalogue = SUCCES.filter(o => o.rang === s.rang).length;
+
+  return `
+    <article class="carte ${rarete.cle}">
+      <header>
+        <span class="titre">${s.nom}</span>
+        <span class="trafic"><i>succès</i></span>
+      </header>
+      <canvas class="vue" data-rang="${s.rang}"></canvas>
+      <div class="lignes">
+        <span class="embleme">${s.tete}</span>
+        <span class="lieu">${rarete.nom.toLowerCase()}</span>
+      </div>
+      <dl class="pouvoirs">
+        <div><dt>Condition</dt><dd>${s.defi}</dd></div>
+      </dl>
+      <footer>
+        <span class="rarete">${"◆".repeat(s.rang + 1)} ${rarete.nom}</span>
+        <span class="numero">${rangDansCatalogue} de ce rang</span>
+      </footer>
+    </article>`;
+};
+
+Cards.poser = (hote, cle) => {
+  hote.innerHTML = Cards.dessine(cle);
+  const toile = hote.querySelector(".vue");
+  if (toile) requestAnimationFrame(() => vignetteReseau(toile, +toile.dataset.rang));
+  return hote.firstElementChild;
+};
 
 /* L'illustration d'une carte d'expert : la ligne entière, avec toutes ses stations. */
 function vignetteLigne(canvas, ligne) {
@@ -235,7 +249,7 @@ function vignetteLigne(canvas, ligne) {
   const px = x => (x - (minX + maxX) / 2) * k + w / 2;
   const py = y => (y - (minY + maxY) / 2) * k + h / 2;
 
-  ctx.fillStyle = "#171207";                       // fond chaud, assorti à l'or
+  ctx.fillStyle = "#171207";
   ctx.fillRect(0, 0, w, h);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -262,9 +276,6 @@ function vignetteLigne(canvas, ligne) {
   }
 }
 
-/* La carte d'expert : une par ligne, dorée, décernée quand on a réussi la révision sans
-   faute et bouclé la ligne d'un bout à l'autre au voyage. Elle ne se tire pas au hasard,
-   elle se gagne — d'où sa place à part dans la collection. */
 Cards.dessineExpert = ligne => {
   const l = net.lines[ligne];
   const stops = new Set();
@@ -307,83 +318,15 @@ Cards.poserExpert = (hote, ligne) => {
   return hote.firstElementChild;
 };
 
-/* Le corps de la carte. */
-Cards.dessine = (i, chromee) => {
-  const st = net.stations[i];
-  const rang = rangs[i];
-  const rarete = RARETES[rang];
-  const arr = paris && paris.stationDistrict[i];
-  const pastilles = st[3]
-    .map(l => `<b style="background:${net.lines[l][1]};color:${net.lines[l][2]}">${net.lines[l][0]}</b>`)
-    .join("");
-
-  return `
-    <article class="carte ${rarete.cle}${chromee ? " chrome" : ""}">
-      ${chromee ? `<span class="etincelles">${
-        [1, 2, 3, 4, 5, 6, 7].map(n => `<i class="e${n}">✦</i>`).join("")}</span>` : ""}
-      <header>
-        <span class="titre">${st[0]}</span>
-        <span class="trafic">${flux[i].toLocaleString("fr-FR")} <i>rames/j</i></span>
-      </header>
-      <canvas class="vue"></canvas>
-      <div class="lignes">${pastilles}
-        <span class="lieu">${arr ? ordinal2(arr) + " arrondissement" : "hors les murs"}</span>
-      </div>
-      <dl class="pouvoirs">
-        <div><dt>Correspondance ×${st[3].length}</dt>
-          <dd>${st[3].length > 1 ? st[3].length + " lignes se croisent ici"
-                                 : "desservie par une seule ligne"}</dd></div>
-        <div><dt>Fréquentation</dt>
-          <dd>${ordinale(places[i])} station la plus desservie du réseau</dd></div>
-      </dl>
-      <footer>
-        <span class="rarete">${chromee ? "✦ Chromée · " : ""}${"◆".repeat(rang + 1)} ${rarete.nom}</span>
-        <span class="numero">${String(i + 1).padStart(3, "0")} / ${net.stations.length}</span>
-      </footer>
-    </article>`;
-};
-
-/* Insère une carte dans un conteneur et dessine son illustration. */
-Cards.poser = (hote, i, chromee) => {
-  hote.innerHTML = Cards.dessine(i, chromee);
-  const toile = hote.querySelector(".vue");
-  if (toile) requestAnimationFrame(() => vignette(toile, i));
-  return hote.firstElementChild;
-};
-
 /* ---------- l'album ---------- */
 
 const albumVue = document.getElementById("album-vue");
 
-/* La collection entière, dans l'ordre des numéros : ce qu'on a, et ce qui manque.
-   Les cartes qu'on n'a pas gardent leur silhouette — on voit qu'il reste à trouver,
-   sans savoir quoi. */
+/* La collection est un tableau de chasse : les succès décrochés, et surtout ceux qui
+   restent, avec leur condition en clair. On doit pouvoir y lire ce qu'il reste à faire. */
 Cards.album = () => {
   if (!Cards.pret) return;
-  const parRarete = RARETES.map((r, k) => {
-    const total = rangs.filter(x => x === k).length;
-    const eues = rangs.filter((x, i) => x === k && avoir.has(i)).length;
-    return `${r.nom} ${eues}/${total}`;
-  }).reverse().join(" · ");
 
-  const jetons = net.stations.map((st, i) => {
-    const brille = brillantes.has(i);
-    const eue = avoir.has(i) || brille;
-    const r = RARETES[rangs[i]];
-    const lignes = eue
-      ? st[3].map(l => `<b style="background:${net.lines[l][1]};color:${net.lines[l][2]}">${net.lines[l][0]}</b>`).join("")
-      : "";
-    // une case vide garde son numéro, comme dans un album : on voit ce qui manque
-    return `<div class="jeton ${eue ? "eue " + r.cle : "absente"}${brille ? " brille" : ""}"
-                 data-i="${i}" data-chrome="${brille ? 1 : 0}">
-      <span class="nom">${eue ? st[0] : "n<sup>o</sup> " + String(i + 1).padStart(3, "0")}</span>
-      <span class="bas">${lignes}<span class="quel">${
-        brille ? "✦ chromée" : eue ? r.nom : "à trouver"}</span></span>
-    </div>`;
-  }).join("");
-
-  // les cartes d'expert d'abord : elles ne se tirent pas, elles se gagnent, et la ligne
-  // d'or en tête de collection donne un but à qui a déjà beaucoup de stations
   const lignesJouables = net.lines.map((_, i) => i).filter(i => !/b$/i.test(net.lines[i][0]));
   const sacres = lignesJouables.map(i => {
     const l = net.lines[i], eu = experts.has(i);
@@ -392,11 +335,28 @@ Cards.album = () => {
        ${eu ? "" : "disabled"}>${l[0]}</button>`;
   }).join("");
 
+  const rangs = RARETES.map((r, k) => {
+    const lot = SUCCES.filter(s => s.rang === k);
+    const eus = lot.filter(s => obtenus.has(s.cle)).length;
+    const cartes = lot.map(s => {
+      const eu = obtenus.has(s.cle);
+      return `<div class="jeton ${eu ? "eue " + r.cle : "absente"}" data-cle="${s.cle}">
+        <span class="nom">${eu ? s.nom : "?"}</span>
+        <span class="bas"><span class="quel">${s.defi}</span></span>
+      </div>`;
+    }).join("");
+    return `<section class="rang">
+      <h3>${r.nom} <span>${eus} / ${lot.length}</span></h3>
+      <div class="grille">${cartes}</div>
+    </section>`;
+  }).join("");
+
   albumVue.innerHTML = `
     <div class="entete">
-      <h2>Collection</h2>
-      <span class="compte">${avoir.size} / ${net.stations.length} · ${parRarete}${
-        brillantes.size ? ` · ✦ ${brillantes.size} chromée${brillantes.size > 1 ? "s" : ""}` : ""}</span>
+      <h2>Succès</h2>
+      <span class="compte">${obtenus.size} / ${SUCCES.length} · ✦ ${
+        experts.size} ligne${experts.size > 1 ? "s" : ""} maîtrisée${
+        experts.size > 1 ? "s" : ""}</span>
       <button class="fermer" title="Fermer">&times;</button>
     </div>
     <section class="sacres">
@@ -404,32 +364,32 @@ Cards.album = () => {
       <p class="regle">révision sans faute et ligne bouclée d'un terminus à l'autre</p>
       <div class="rangee">${sacres}</div>
     </section>
-    <div class="grille">${jetons}</div>`;
+    ${rangs}`;
   albumVue.hidden = false;
 
   albumVue.querySelector(".fermer").onclick = () => { albumVue.hidden = true; };
   albumVue.querySelector(".rangee").onclick = e => {
     const jeton = e.target.closest(".sacre-jeton.acquis");
     if (!jeton) return;
-    const loupe = document.createElement("div");
-    loupe.className = "loupe";
-    document.body.appendChild(loupe);
-    Cards.poserExpert(loupe, +jeton.dataset.ligne);
-    loupe.onclick = () => loupe.remove();
+    ouvre(loupe => Cards.poserExpert(loupe, +jeton.dataset.ligne));
   };
-  albumVue.querySelector(".grille").onclick = e => {
+  albumVue.onclick = e => {
     const jeton = e.target.closest(".jeton.eue");
     if (!jeton) return;
-    // la loupe est attachée au corps de la page, pas à l'album : le backdrop-filter de
-    // celui-ci fait de lui la référence des positions fixes, et la carte suivrait alors
-    // le défilement au lieu de rester au centre de l'écran
-    const loupe = document.createElement("div");
-    loupe.className = "loupe";
-    document.body.appendChild(loupe);
-    Cards.poser(loupe, +jeton.dataset.i, jeton.dataset.chrome === "1");
-    loupe.onclick = () => loupe.remove();
+    ouvre(loupe => Cards.poser(loupe, jeton.dataset.cle));
   };
 };
+
+/* La loupe est attachée au corps de la page, pas à l'album : le backdrop-filter de
+   celui-ci fait de lui la référence des positions fixes, et la carte suivrait alors le
+   défilement au lieu de rester au centre de l'écran. */
+function ouvre(remplit) {
+  const loupe = document.createElement("div");
+  loupe.className = "loupe";
+  document.body.appendChild(loupe);
+  remplit(loupe);
+  loupe.onclick = () => loupe.remove();
+}
 
 document.getElementById("album").onclick = () => Cards.album();
 addEventListener("keydown", e => {

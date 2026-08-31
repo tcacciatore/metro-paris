@@ -2339,11 +2339,13 @@ function finish() {
     ["next", "odd", "which", "outside", "far", "landmark", "fake",
      "corresp", "pasterminus", "lettre", "long"].includes(h.kind));
   const quizzes = done.filter(h => h.kind === "theme" || h.kind === "name" || h.kind === "wards");
-  // le voyage se juge à sa plus longue suite sans faute, pas à un total
+  // le voyage se juge à sa plus longue suite sans faute, pas à un total ; la série, elle,
+  // se compte sur toute la partie quel que soit le mode — les succès s'en servent
   const rames = done.filter(h => h.kind === "voyage");
   let serie = 0, courante = 0;
-  for (const h of rames) {
-    if (h.name) { courante++; if (courante > serie) serie = courante; } else courante = 0;
+  for (const h of done) {
+    if (success(h) > 0.75) { courante++; if (courante > serie) serie = courante; }
+    else courante = 0;
   }
   const spotted = zones.reduce((s, h) => s + h.hits, 0);
   const wanted = zones.reduce((s, h) => s + h.need, 0);
@@ -2360,13 +2362,14 @@ function finish() {
 
   // Maîtrise d'une ligne : la révision sans une faute d'un côté, la ligne bouclée d'un
   // terminus à l'autre au voyage de l'autre. Les deux réunis décernent la carte d'expert.
-  let sacre = -1;
+  let sacre = -1, bouclee = false;
   if (MODES[Game.mode].choixLigne && ligneFixe !== null) {
     const attendu = window.Voyage && Voyage.stops.length
       ? Voyage.stops.length - 1 : byLine[ligneFixe].length - 1;
     const parfait = MODES[Game.mode].voyage
       ? rames.length > 0 && serie >= attendu
       : done.length > 0 && rate === 1;
+    if (MODES[Game.mode].voyage && parfait) bouclee = true;
     const cle = MODES[Game.mode].voyage ? "voyage" : "revision";
     if (parfait && marqueMaitrise(ligneFixe, cle)) sacre = ligneFixe;
     dresseLignes();                                // la pastille peut être passée à l'or
@@ -2447,18 +2450,33 @@ function finish() {
     if (window.Son) setTimeout(() => Son.carte(true), 400);
   }
 
-  const gagnee = window.Cards && Cards.tirage(Game.score);
-  if (gagnee >= 0) {
-    const chromee = Cards.chrome(Game.score);
-    const neuve = Cards.garder(gagnee, chromee);
+  // Le bilan de la partie, confronté au catalogue des succès. Rien n'est tiré au sort :
+  // une carte se gagne en remplissant une condition annoncée d'avance.
+  const bilan = {
+    mode: Game.mode,
+    score: Game.score,
+    taux: rate,
+    grade: grade.cle,
+    questions: done.length,
+    serie,
+    distance: window.Voyage ? Voyage.parcouru : 0,
+    stations: rames.length,
+    meilleureVisee: aimed.length ? Math.min(...aimed.map(h => h.d)) : Infinity,
+    bouclee,
+    maitrisees: Object.values(maitrises()).filter(f => f.revision && f.voyage).length,
+  };
+  const neufs = window.Cards ? Cards.verifie(bilan) : [];
+
+  if (neufs.length) {
     const butin = over.querySelector(".butin");
     butin.hidden = false;
-    butin.innerHTML = `<p class="sortie${chromee ? " eclat" : ""}">${
-      chromee ? "✦ Carte chromée ✦" : neuve ? "Nouvelle carte" : "Carte en double"
-      } · collection ${Cards.total()} / ${net.stations.length}</p><div class="ecrin"></div>`;
-    Cards.poser(butin.querySelector(".ecrin"), gagnee, chromee);
-    if (window.Son) setTimeout(() => Son.carte(chromee), 700);   // après l'arpège de fin
-    if (chromee) confetti();
+    butin.innerHTML = `<p class="sortie">${
+      neufs.length > 1 ? neufs.length + " nouveaux succès" : "Nouveau succès"
+      } · ${Cards.total()} / ${Cards.catalogue()}</p>` +
+      neufs.map(() => `<div class="ecrin"></div>`).join("");
+    [...butin.querySelectorAll(".ecrin")].forEach((e, k) => Cards.poser(e, neufs[k]));
+    if (window.Son) setTimeout(() => Son.carte(false), 700);     // après l'arpège de fin
+    if (neufs.some(c => Cards.rang(c) >= 3)) confetti();
   }
 }
 
