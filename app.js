@@ -268,12 +268,15 @@ function drawBackground() {
     for (let i = 1; i < pts.length; i++) p.lineTo(sx(pts[i][0]), sy(pts[i][1]));
   }
   const blind = window.Game && Game.blind;
+  // en conquête, le réseau qu'on ne possède pas est éteint : c'est ce gris qui donne son
+  // sens au mode, la couleur ne revenant que sur ce qu'on a pris
+  const gris = window.Conquete && Conquete.actif;
   const paint = i => {
     const l = net.lines[i];
     const lit = i === hovered || spotlight.includes(i);
     // en question de couleur, le survol aide à viser sans désigner de réponse
     bgx.lineWidth = lit ? lw * (blind ? 1.4 : 2.6) : lw;
-    bgx.strokeStyle = blind ? skin.muet
+    bgx.strokeStyle = (blind || gris) ? skin.muet
                     : lit ? l[1]                       // la ligne visée en couleur pleine
                     : selected === i ? pale(l[1], 0.72)
                     : (hovered >= 0 || spotlight.length) ? skin.efface(l[1])

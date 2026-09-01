@@ -300,6 +300,50 @@ function rentrer(reseauFini, bredouille) {
 
 /* ---------- le dessin ---------- */
 
+/* Le tronçon de tracé entre deux stations voisines, suivi sur la vraie géométrie de la
+   ligne et non en ligne droite : c'est lui qui rallume la couleur là où l'on est passé.
+   Le réseau restant, lui, est peint en gris par le fond. */
+function troncon(ctx, ligne, a, b) {
+  const voie = voies[ligne];
+  if (!voie || !voie.total) return;
+  const da = surTrace(ligne, a), db = surTrace(ligne, b);
+  if (da === null || db === null) return;
+  const [d1, d2] = da < db ? [da, db] : [db, da];
+
+  const suite = [surVoie(voie, d1)];
+  for (let k = 0; k < voie.pts.length; k++) {
+    if (voie.cumul[k] > d1 && voie.cumul[k] < d2) suite.push(voie.pts[k]);
+  }
+  suite.push(surVoie(voie, d2));
+
+  ctx.beginPath();
+  ctx.moveTo(sx(suite[0][0]), sy(suite[0][1]));
+  for (let k = 1; k < suite.length; k++) ctx.lineTo(sx(suite[k][0]), sy(suite[k][1]));
+  ctx.stroke();
+}
+
+/* Tous les tronçons dont les deux extrémités sont à nous. */
+function reseauAcquis(ctx) {
+  const lw = Math.max(1.5, Math.min(6, 80 / mpp()));
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = lw;
+  const faits = new Set();
+  for (const p of net.patterns) {
+    const stops = p[3];
+    for (let k = 0; k < stops.length - 1; k++) {
+      if (!pris.has(stops[k]) || !pris.has(stops[k + 1])) continue;
+      const cle = `${p[0]}:${Math.min(stops[k], stops[k + 1])}:${Math.max(stops[k], stops[k + 1])}`;
+      if (faits.has(cle)) continue;
+      faits.add(cle);
+      ctx.strokeStyle = net.lines[p[0]][1];
+      troncon(ctx, p[0], stops[k], stops[k + 1]);
+    }
+  }
+  ctx.restore();
+}
+
 Conquete.draw = function (ctx) {
   const q = Conquete.question;
 
@@ -317,6 +361,8 @@ Conquete.draw = function (ctx) {
 
   const front = new Set(Conquete.actif ? frontiere() : []);
   const battement = 0.5 + 0.5 * Math.sin(performance.now() / 380);
+
+  reseauAcquis(ctx);
 
   ctx.save();
   for (const i of pris) {
