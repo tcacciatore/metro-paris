@@ -268,9 +268,9 @@ function drawBackground() {
     for (let i = 1; i < pts.length; i++) p.lineTo(sx(pts[i][0]), sy(pts[i][1]));
   }
   const blind = window.Game && Game.blind;
-  // en conquête, le réseau qu'on ne possède pas est éteint : c'est ce gris qui donne son
+  // en carrière, le réseau hors de son périmètre est éteint : c'est ce gris qui donne son
   // sens au mode, la couleur ne revenant que sur ce qu'on a pris
-  const gris = window.Conquete && Conquete.actif;
+  const gris = window.Carriere && Carriere.actif;
   const paint = i => {
     const l = net.lines[i];
     const lit = i === hovered || spotlight.includes(i);
@@ -289,10 +289,10 @@ function drawBackground() {
   bgx.lineWidth = lw;
 
   if (blind) return;                              // question de couleur : tracés nus
-  // le voyage ne montre que la station en cours de parcours, la conquête ne montre que
-  // son territoire : les deux dessinent leurs points eux-mêmes, par-dessus
+  // le voyage ne montre que la station en cours de parcours, la carrière ne montre que
+  // son périmètre : les deux dessinent leurs points eux-mêmes, par-dessus
   if (window.Voyage && Voyage.actif) return;
-  if (window.Conquete && Conquete.actif) return;
+  if (window.Carriere && Carriere.actif) return;
   const hunt = window.Game && Game.playing;
 
   // les stations sont désormais ce que la carte donne à voir : elles restent visibles
