@@ -30,6 +30,9 @@ const MODES = {
   /* L'exploration : tout le réseau. Seul mode qui ne demande pas de choisir une ligne. */
   metro: { nom: "Exploration", questions: 20, ...REGLAGE, formes: RESEAU },
 
+  /* La conquête : la seule partie qui ne recommence pas à zéro. Servie par conquete.js. */
+  conquete: { nom: "Conquête", questions: 0, ...REGLAGE, conquete: true },
+
   /* On choisit sa ligne avant de commencer, et la manche entière s'y tient. Les formes
      retenues sont celles qui portaient déjà sur une ligne — situer une station, la
      reconnaître, dire ce qui suit, repérer l'intruse, citer les arrondissements
@@ -508,12 +511,18 @@ function showRecord() {
   recordLine.textContent = best ? `🎉 ${best.toLocaleString("fr-FR")}` : "";
   recordLine.hidden = !best;
 
+  // sous le bouton Jouer : ce qui situe la partie à venir. En conquête, c'est l'état du
+  // territoire — la seule chose qui donne envie de rouvrir le jeu demain.
   const surLigne = MODES[Game.mode].choixLigne && ligneFixe !== null;
+  const enConquete = MODES[Game.mode].conquete && window.Conquete;
   if (surLigne) {
     const bouts = lineEnds(ligneFixe);
     boutsLine.textContent = `${bouts.from} ↔ ${bouts.to}`;
+  } else if (enConquete) {
+    boutsLine.textContent =
+      `territoire : ${Conquete.territoire()} / ${net.stations.length} stations`;
   }
-  boutsLine.hidden = !surLigne;
+  boutsLine.hidden = !(surLigne || enConquete);
 }
 
 /* Le mode se choisit avant la partie et se retient d'une visite à l'autre. */
@@ -1591,6 +1600,7 @@ function nearest(px, py, pool) {
 
 Game.click = (px, py) => {
   if (window.Voyage && Voyage.actif) return;       // le voyage se joue aux boutons
+  if (window.Conquete && Conquete.actif) return Conquete.click(px, py);
   const q = Game.question;
   if (!q || reveal) return;
   if (performance.now() - started < 250) return;   // garde contre le double clic
@@ -1809,6 +1819,7 @@ const format = d => d < 1000 ? `${Math.round(d / 10) * 10} m`
 
 Game.draw = ctx => {
   if (window.Voyage && Voyage.actif) return Voyage.draw(ctx);
+  if (window.Conquete && Conquete.actif) return Conquete.draw(ctx);
   const q = Game.question;
   if (!q) return;
   if (reveal && !reveal.born) reveal.born = performance.now();
@@ -2249,8 +2260,9 @@ function trainIn(after) {
 }
 
 function start() {
-  // le voyage est un jeu à part entière : il a son propre départ
+  // le voyage et la conquête sont des jeux à part entière : ils ont leur propre départ
   if (MODES[Game.mode].voyage) return Voyage.start();
+  if (MODES[Game.mode].conquete) return Conquete.start();
   document.body.classList.add("explored");
   wear("nuit");                                    // la partie se joue de nuit
   Game.playing = true;
@@ -2342,6 +2354,7 @@ function finish() {
   const rate = MODES[Game.mode].voyage
     ? Math.min(1, serie / LIGNE_ENTIERE)
     : done.length ? done.reduce((s, h) => s + success(h), 0) / done.length : 0;
+  const conquises = done.filter(h => h.kind === "conquete" && h.name).length;
   const grade = GRADES.find(g => rate >= g.min) || GRADES[GRADES.length - 1];
   if (window.Son) Son.fin(rate);
 
@@ -2373,12 +2386,16 @@ function finish() {
     <h2>${Game.score.toLocaleString("fr-FR")}</h2>
     <p class="sub">${MODES[Game.mode].voyage
       ? `${serie} station${serie > 1 ? "s" : ""} d'affilée`
+      : MODES[Game.mode].conquete
+      ? `${conquises} station${conquises > 1 ? "s" : ""} conquise${conquises > 1 ? "s" : ""}`
       : `${Math.round(rate * 100)} % de réussite`} · ${
       record ? "nouveau record" : `record : ${best ? best.toLocaleString("fr-FR") : "—"}`}</p>
     <dl>
       ${shots.length ? `<dt>stations visées</dt><dd>${shots.length}</dd>
       <dt>écart moyen</dt><dd>${avg !== null ? format(avg) : "—"}</dd>` : ""}
       ${zones.length ? `<dt>stations d'arrondissement</dt><dd>${spotted} / ${wanted}</dd>` : ""}
+      ${MODES[Game.mode].conquete ? `<dt>stations conquises</dt><dd>${conquises}</dd>
+        <dt>territoire</dt><dd>${Conquete.territoire()} / ${net.stations.length}</dd>` : ""}
       ${rames.length ? `<dt>stations desservies</dt><dd>${rames.length}</dd>
         <dt>distance parcourue</dt><dd>${format(Voyage.parcouru)}</dd>
         <dt>plus longue série</dt><dd>${serie}</dd>` : ""}

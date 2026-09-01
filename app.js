@@ -286,9 +286,10 @@ function drawBackground() {
   bgx.lineWidth = lw;
 
   if (blind) return;                              // question de couleur : tracés nus
-  // le voyage ne montre que la station en cours de parcours, dessinée par-dessus : les
-  // trois cents autres points n'apporteraient que de l'encombrement
+  // le voyage ne montre que la station en cours de parcours, la conquête ne montre que
+  // son territoire : les deux dessinent leurs points eux-mêmes, par-dessus
   if (window.Voyage && Voyage.actif) return;
+  if (window.Conquete && Conquete.actif) return;
   const hunt = window.Game && Game.playing;
 
   // les stations sont désormais ce que la carte donne à voir : elles restent visibles
