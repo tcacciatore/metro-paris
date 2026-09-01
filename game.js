@@ -2441,6 +2441,7 @@ function finish() {
   // une carte se gagne en remplissant une condition annoncée d'avance.
   const bilan = {
     mode: Game.mode,
+    ligne: MODES[Game.mode].choixLigne ? ligneFixe : null,
     score: Game.score,
     taux: rate,
     grade: grade.cle,
@@ -2458,7 +2459,7 @@ function finish() {
     const butin = over.querySelector(".butin");
     butin.hidden = false;
     butin.innerHTML = `<p class="sortie">${
-      neufs.length > 1 ? neufs.length + " nouveaux succès" : "Nouveau succès"
+      neufs.length > 1 ? neufs.length + " billets compostés" : "Billet composté"
       } · ${Cards.total()} / ${Cards.catalogue()}</p>` +
       neufs.map(() => `<div class="ecrin"></div>`).join("");
     [...butin.querySelectorAll(".ecrin")].forEach((e, k) => Cards.poser(e, neufs[k]));

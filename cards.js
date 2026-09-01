@@ -14,84 +14,91 @@ const RARETES = [
 ];
 
 const OBTENUS = "metro-succes";
-const PARTIES = "metro-parties";
+const CARRIERE = "metro-carriere";
 
 /* Le catalogue. Chaque succès reçoit un bilan de fin de partie et dit s'il est rempli.
    L'ordre des rangs est aussi celui de la difficulté : on ne décroche pas « quarante
    d'affilée » avant « cinq d'affilée ». */
 const SUCCES = [
-  // ---- communes : les premiers pas -------------------------------------
+  // ---- communes : la première soirée -----------------------------------
   { cle: "premier", rang: 0, tete: "🎫", nom: "Premier voyage",
     defi: "terminer une partie", test: b => b.questions > 0 },
-  { cle: "mille", rang: 0, tete: "🪙", nom: "Ticket composté",
-    defi: "marquer 1 000 points en une partie", test: b => b.score >= 1000 },
-  { cle: "trois", rang: 0, tete: "🔗", nom: "Trois d'affilée",
-    defi: "enchaîner 3 bonnes réponses", test: b => b.serie >= 3 },
-  { cle: "quai", rang: 0, tete: "🎯", nom: "Pile sur le quai",
-    defi: "viser une station à moins de 200 mètres", test: b => b.meilleureVisee <= 200 },
-  { cle: "moitie", rang: 0, tete: "📖", nom: "La moitié du chemin",
-    defi: "réussir la moitié des questions d'une partie",
-    test: b => b.questions >= 8 && b.taux >= 0.5 },
-
-  // ---- peu communes ----------------------------------------------------
-  { cle: "cinq", rang: 1, tete: "🔥", nom: "Cinq d'affilée",
+  { cle: "cinq", rang: 0, tete: "🔗", nom: "Cinq d'affilée",
     defi: "enchaîner 5 bonnes réponses", test: b => b.serie >= 5 },
-  { cle: "cinqmille", rang: 1, tete: "💶", nom: "Carnet complet",
+  { cle: "cinqmille", rang: 0, tete: "🪙", nom: "Carnet complet",
     defi: "marquer 5 000 points en une partie", test: b => b.score >= 5000 },
-  { cle: "kilometre", rang: 1, tete: "🚇", nom: "Un kilomètre",
-    defi: "parcourir 1 km en Voyage", test: b => b.distance >= 1000 },
-  { cle: "dixstations", rang: 1, tete: "🚉", nom: "Dix arrêts",
-    defi: "desservir 10 stations en un seul voyage", test: b => b.stations >= 10 },
+  { cle: "quai", rang: 0, tete: "🎯", nom: "Pile sur le quai",
+    defi: "viser une station à moins de 100 mètres", test: b => b.meilleureVisee <= 100 },
+  { cle: "curieux", rang: 0, tete: "🧭", nom: "Le tour du propriétaire",
+    defi: "avoir joué les trois modes", test: b => b.carriere.modes.length >= 3 },
+
+  // ---- peu communes : la première semaine ------------------------------
+  { cle: "dix", rang: 1, tete: "🔥", nom: "Dix d'affilée",
+    defi: "enchaîner 10 bonnes réponses", test: b => b.serie >= 10 },
+  { cle: "douzemille", rang: 1, tete: "💶", nom: "Douze mille",
+    defi: "marquer 12 000 points en une partie", test: b => b.score >= 12000 },
+  { cle: "troiskm", rang: 1, tete: "🚇", nom: "Trois kilomètres",
+    defi: "parcourir 3 km en un seul voyage", test: b => b.distance >= 3000 },
   { cle: "habitue", rang: 1, tete: "🥖", nom: "Habitué du réseau",
     defi: "décrocher le grade d'habitué ou mieux",
     test: b => ["habitue", "poinconneur", "titi"].includes(b.grade) },
+  { cle: "dixparties", rang: 1, tete: "📅", nom: "Usager régulier",
+    defi: "jouer dix parties", test: b => b.carriere.parties >= 10 },
 
   // ---- rares -----------------------------------------------------------
-  { cle: "dix", rang: 2, tete: "⚡", nom: "Dix d'affilée",
-    defi: "enchaîner 10 bonnes réponses", test: b => b.serie >= 10 },
-  { cle: "dixmille", rang: 2, tete: "💎", nom: "Dix mille",
-    defi: "marquer 10 000 points en une partie", test: b => b.score >= 10000 },
-  { cle: "cinqkm", rang: 2, tete: "🛤️", nom: "Cinq kilomètres",
-    defi: "parcourir 5 km en Voyage", test: b => b.distance >= 5000 },
-  { cle: "poinconneur", rang: 2, tete: "🎺", nom: "Poinçonneur",
-    defi: "décrocher le grade de poinçonneur ou mieux",
-    test: b => ["poinconneur", "titi"].includes(b.grade) },
+  { cle: "quinze", rang: 2, tete: "⚡", nom: "Quinze d'affilée",
+    defi: "enchaîner 15 bonnes réponses", test: b => b.serie >= 15 },
+  { cle: "vingtmille", rang: 2, tete: "💎", nom: "Vingt mille",
+    defi: "marquer 20 000 points en une partie", test: b => b.score >= 20000 },
+  { cle: "dixkm", rang: 2, tete: "🛤️", nom: "Dix kilomètres",
+    defi: "parcourir 10 km en un seul voyage", test: b => b.distance >= 10000 },
   { cle: "precis", rang: 2, tete: "📍", nom: "Au mètre près",
-    defi: "viser une station à moins de 50 mètres", test: b => b.meilleureVisee <= 50 },
+    defi: "viser une station à moins de 40 mètres", test: b => b.meilleureVisee <= 40 },
+  { cle: "troislignes", rang: 2, tete: "🎟️", nom: "Trois lignes",
+    defi: "avoir joué trois lignes différentes", test: b => b.carriere.lignes.length >= 3 },
 
   // ---- épiques ---------------------------------------------------------
   { cle: "sansfaute", rang: 3, tete: "✨", nom: "Sans une faute",
     defi: "réussir toutes les questions d'une Exploration",
     test: b => b.mode === "metro" && b.questions >= 20 && b.taux === 1 },
-  { cle: "vingt", rang: 3, tete: "🌪️", nom: "Vingt d'affilée",
-    defi: "enchaîner 20 bonnes réponses", test: b => b.serie >= 20 },
-  { cle: "vingtmille", rang: 3, tete: "👑", nom: "Vingt mille",
-    defi: "marquer 20 000 points en une partie", test: b => b.score >= 20000 },
-  { cle: "dixkm", rang: 3, tete: "🧭", nom: "Dix kilomètres",
-    defi: "parcourir 10 km en Voyage", test: b => b.distance >= 10000 },
-  { cle: "titi", rang: 3, tete: "🤌", nom: "Titi parisien",
-    defi: "décrocher le meilleur grade", test: b => b.grade === "titi" },
+  { cle: "vingtcinq", rang: 3, tete: "🌪️", nom: "Vingt-cinq d'affilée",
+    defi: "enchaîner 25 bonnes réponses", test: b => b.serie >= 25 },
+  { cle: "vingthuit", rang: 3, tete: "👑", nom: "Vingt-huit mille",
+    defi: "marquer 28 000 points en une partie", test: b => b.score >= 28000 },
+  { cle: "expert", rang: 3, tete: "🎖️", nom: "Expert de ligne",
+    defi: "maîtriser une ligne de bout en bout", test: b => b.maitrisees >= 1 },
+  { cle: "assidu", rang: 3, tete: "📆", nom: "Usager assidu",
+    defi: "jouer cinquante parties", test: b => b.carriere.parties >= 50 },
 
   // ---- légendaires -----------------------------------------------------
   { cle: "bouclee", rang: 4, tete: "🔁", nom: "Ligne bouclée",
     defi: "traverser une ligne d'un terminus à l'autre sans faute",
     test: b => b.bouclee },
-  // hors du voyage, aucune manche ne compte quarante questions : autant le dire
   { cle: "quarante", rang: 4, tete: "☄️", nom: "Quarante d'affilée",
     defi: "enchaîner 40 stations en Voyage", test: b => b.serie >= 40 },
   { cle: "vingtkm", rang: 4, tete: "🌍", nom: "Vingt kilomètres",
     defi: "parcourir 20 km en un seul voyage", test: b => b.distance >= 20000 },
-  { cle: "assidu", rang: 4, tete: "📅", nom: "Usager assidu",
-    defi: "jouer cinquante parties", test: b => b.parties >= 50 },
+  { cle: "centkm", rang: 4, tete: "🗺️", nom: "Cent kilomètres",
+    defi: "parcourir 100 km en tout", test: b => b.carriere.distance >= 100000 },
   { cle: "reseau", rang: 4, tete: "🏆", nom: "Maître du réseau",
     defi: "maîtriser les quatorze lignes", test: b => b.maitrisees >= 14 },
 ];
 
+/* Au plus trois billets par partie, et l'on sert les plus rares d'abord. Sans ce frein,
+   une première manche un peu réussie franchissait cinq seuils d'un coup et vidait le
+   carnet de son intérêt ; les succès laissés de côté reviennent à la partie suivante,
+   leurs conditions étant presque toutes reproductibles. */
+const PAR_PARTIE = 3;
+
 const parCle = new Map(SUCCES.map(s => [s.cle, s]));
 
 let obtenus = new Map();         // clé du succès → date à laquelle il a été composté
-let experts = new Set();         // lignes maîtrisées : une carte dorée chacune
-let parties = 0;
+let experts = new Set();         // lignes maîtrisées : un passe chacune
+
+/* Ce qui se construit sur la durée. Sans cette mémoire, tous les succès étaient des
+   seuils franchissables dans une seule partie — et une bonne première manche en
+   décrochait cinq d'un coup. */
+let carriere = { parties: 0, modes: [], lignes: [], distance: 0 };
 
 const Cards = { pret: false };
 window.Cards = Cards;
@@ -105,8 +112,12 @@ addEventListener("metro:ready", () => {
       ? brut.map(cle => [cle, null])
       : Object.entries(brut));
     experts = new Set(JSON.parse(localStorage.getItem("metro-experts") || "[]"));
-    parties = +(localStorage.getItem(PARTIES) || 0);
-  } catch { obtenus = new Map(); experts = new Set(); parties = 0; }
+    carriere = { parties: 0, modes: [], lignes: [], distance: 0,
+                 ...JSON.parse(localStorage.getItem(CARRIERE) || "{}") };
+  } catch {
+    obtenus = new Map(); experts = new Set();
+    carriere = { parties: 0, modes: [], lignes: [], distance: 0 };
+  }
   Cards.pret = true;
 });
 
@@ -114,7 +125,7 @@ function enregistre() {
   try {
     localStorage.setItem(OBTENUS, JSON.stringify(Object.fromEntries(obtenus)));
     localStorage.setItem("metro-experts", JSON.stringify([...experts]));
-    localStorage.setItem(PARTIES, String(parties));
+    localStorage.setItem(CARRIERE, JSON.stringify(carriere));
   } catch { /* stockage indisponible */ }
 }
 
@@ -122,15 +133,27 @@ function enregistre() {
    décrochés, du plus commun au plus rare — c'est l'ordre dans lequel on les montrera. */
 Cards.verifie = bilan => {
   if (!Cards.pret) return [];
-  parties++;
-  bilan.parties = parties;
-  const neufs = SUCCES
+
+  carriere.parties++;
+  if (!carriere.modes.includes(bilan.mode)) carriere.modes.push(bilan.mode);
+  if (bilan.ligne != null && !carriere.lignes.includes(bilan.ligne)) {
+    carriere.lignes.push(bilan.ligne);
+  }
+  carriere.distance += bilan.distance || 0;
+  bilan.carriere = carriere;
+
+  // les plus rares d'abord : une belle partie doit rendre ses plus beaux billets, pas
+  // trois cartons de seconde classe
+  const merites = SUCCES
     .filter(s => !obtenus.has(s.cle) && s.test(bilan))
-    .map(s => s.cle);
+    .sort((a, b) => b.rang - a.rang);
+  const neufs = merites.slice(0, PAR_PARTIE).map(s => s.cle);
   for (const cle of neufs) obtenus.set(cle, Date.now());
   enregistre();
   return neufs;
 };
+
+Cards.carriere = () => ({ ...carriere });
 
 Cards.expert = ligne => {
   const neuve = !experts.has(ligne);
@@ -342,9 +365,11 @@ Cards.album = () => {
   albumVue.innerHTML = `
     <div class="entete">
       <h2>Carnet</h2>
-      <span class="compte">${obtenus.size} / ${SUCCES.length} · ✦ ${
-        experts.size} ligne${experts.size > 1 ? "s" : ""} maîtrisée${
-        experts.size > 1 ? "s" : ""}</span>
+      <span class="compte">${obtenus.size} / ${SUCCES.length} · ${
+        carriere.parties} partie${carriere.parties > 1 ? "s" : ""} · ${
+        (carriere.distance / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })
+        } km parcourus · ✦ ${experts.size} ligne${
+        experts.size > 1 ? "s" : ""} maîtrisée${experts.size > 1 ? "s" : ""}</span>
       <button class="fermer" title="Fermer">&times;</button>
     </div>
     <section class="sacres">
