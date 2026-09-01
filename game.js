@@ -22,7 +22,7 @@ const REGLAGE = {
    menu annonce : ce qui porte sur tout le réseau d'un côté, ce qui porte sur une ligne
    de l'autre. Sans cette règle, la révision n'était qu'un sous-ensemble de l'exploration
    restreint à une ligne — un filtre, pas un jeu. */
-const RESEAU = ["station", "hue", "which", "district", "far", "landmark",
+const RESEAU = ["station", "portes", "hue", "which", "district", "far", "landmark",
                 "outside", "theme", "fake", "pasterminus", "corresp"];
 const SUR_LIGNE = ["spot", "name", "next", "odd", "wards", "lettre", "long"];
 
@@ -66,7 +66,8 @@ const PICK_MIN = 300;
 const LIMIT = { station: 15, district: 25, spot: 15, name: 30, wards: 35,
                 hue: 15, theme: 35, next: 18, odd: 20, which: 15,
                 outside: 20, far: 20, fake: 20, landmark: 18,
-                corresp: 20, pasterminus: 22, lettre: 25, long: 28 };  // secondes, par type
+                corresp: 20, pasterminus: 22, lettre: 25, long: 28,
+                portes: 11 };                                          // secondes, par type
 
 const NEEDS_LINE = new Set(["spot", "name", "wards", "next", "odd", "lettre", "long"]);
 
@@ -1403,6 +1404,16 @@ function nextQuestion() {
     // on se rapproche d'un quartier trois fois plus large que l'arrondissement, et
     // décentré : les stations deviennent de vraies cibles, la zone reste à deviner
     flyTo(frameTo(loosely(ringsBounds(d.rings), 3.2), 0.95, 0, fitScale * 6));
+  } else if (kind === "portes") {
+    // Les portes se referment sur la carte : deux vantaux qui glissent depuis les bords
+    // et ne laissent qu'un passage de plus en plus étroit. Rien à savoir de plus que
+    // pour « trouve », mais neuf secondes au lieu de quinze et le temps se voit au lieu
+    // de se lire. La cible est prise dans le haut du classement : c'est une question de
+    // sang-froid, pas de mémoire.
+    const i = graded(fame.filter(k => !asked.has(k)), Game.step, 0.22) ?? fame[0];
+    asked.add(i);
+    Game.question = { kind: "portes", target: i, prochainTic: 0 };
+    ask(`<b>${net.stations[i][0]}</b> · les portes se ferment`, false, "Descendez à");
   } else {
     const i = pickStation(Game.step);
     asked.add(i);
@@ -1617,6 +1628,23 @@ Game.click = (px, py) => {
     return;
   }
 
+  if (q.kind === "portes") {
+    const d = metersTo(px, py, q.target);
+    const dedans = d <= aimRadius();
+    // tout ou rien : on est monté dans la rame ou on l'a regardée partir
+    const u = Math.min(1, elapsed(q));
+    const points = award(dedans ? Math.round(700 + 800 * (1 - u)) : 0, dedans, px, py);
+    Game.history.push({ kind: "portes", name: dedans ? net.stations[q.target][0] : null,
+                        d, points });
+    say(dedans
+        ? `<em>${points} pts</em> · vous êtes descendu à temps`
+        : `<em>raté</em> · à ${format(d)} de la porte`, dedans ? "near" : "far");
+    q.uClic = u;
+    reveal = { at: [px, py], won: dedans, until: performance.now() + 2100 };
+    tally();
+    return;
+  }
+
   if (q.kind === "spot") {
     const d = metersTo(px, py, q.target);
     const off = Math.max(0, d - aimRadius());
@@ -1778,6 +1806,11 @@ function tick(q) {
     say(`<em>temps écoulé</em> · par exemple ${net.stations[q.target][0]}`, "far");
     hideInputs();
     reveal = { until: performance.now() + 2600 };
+  } else if (q.kind === "portes") {
+    Game.history.push({ kind: "portes", name: null, d: Infinity, points: 0, missed: true });
+    say(`<em>portes fermées</em> · c'était là`, "far");
+    q.uClic = 1;
+    reveal = { at: null, won: false, until: performance.now() + 2300 };
   } else if (q.kind === "spot") {
     Game.history.push({ kind: "spot", name: net.stations[q.target][0],
                         d: Infinity, points: 0, missed: true });
@@ -2014,6 +2047,22 @@ Game.draw = ctx => {
   } else if (q.kind === "name") {
     if (reveal) for (const i of q.found) dot(ctx, i, "#1a7f37", true);
     else for (const i of q.found) dot(ctx, i, "#1a7f37", false);
+  } else if (q.kind === "portes") {
+    portes(ctx, q);
+    if (reveal) {
+      aimZone(ctx, q.target, reveal.won);
+      if (reveal.at) {
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = "#9a9a9a";
+        ctx.beginPath();
+        ctx.moveTo(reveal.at[0], reveal.at[1]);
+        ctx.lineTo(sx(net.stations[q.target][4][0]), sy(net.stations[q.target][4][1]));
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      dot(ctx, q.target, reveal.won ? "#1a7f37" : "#b3261e", true);
+      epingle(ctx, q.target);
+    }
   } else if (q.kind === "spot" && reveal) {
     const st = net.stations[q.target];
     aimZone(ctx, q.target, reveal.won);
@@ -2179,6 +2228,63 @@ function epingle(ctx, i) {
   ctx.fillStyle = "#fff";
   ctx.fill();
 
+  ctx.restore();
+}
+
+/* Les portes de la rame se referment sur la carte : deux vantaux glissent depuis les
+   bords et ne laissent qu'un passage qui se resserre. Le chrono cesse d'être une barre
+   qu'on lit pour devenir un espace qui se ferme — et la sonnerie s'accélère avec lui,
+   comme sur le quai. Répondre rouvre les portes d'un coup. */
+const PASSAGE = 0.94;            // part de l'écran encore libre au premier instant
+
+function portes(ctx, q) {
+  const w = ctx.canvas.width / dpr, h = ctx.canvas.height / dpr;
+  const clic = q.uClic === undefined ? null : q.uClic;
+  let u = Math.min(1, elapsed(q));
+
+  if (reveal) {
+    // à la correction les vantaux repartent, sauf si le temps les a fermés
+    const depuis = Math.min(1, (performance.now() - (reveal.born || 0)) / 420);
+    u = reveal.won ? clic * (1 - depuis) : Math.max(clic, u);
+  } else {
+    // la sonnerie de fermeture, de plus en plus pressante
+    const cadence = 0.72 - 0.58 * u;
+    if (window.Son && performance.now() - q.prochainTic > cadence * 1000) {
+      q.prochainTic = performance.now();
+      Son.tic();
+    }
+  }
+
+  const libre = w * PASSAGE * (1 - u);
+  const vantail = (w - libre) / 2;
+  if (vantail <= 0.5) return;
+
+  ctx.save();
+  for (const cote of [0, 1]) {
+    const x = cote ? w - vantail : 0;
+
+    // la vitre : elle assombrit la carte sans l'effacer. Des portes opaques rendraient
+    // la question déloyale — on cliquerait à l'aveugle derrière la tôle.
+    const vitre = ctx.createLinearGradient(x, 0, x + vantail, 0);
+    vitre.addColorStop(cote ? 1 : 0, "rgba(16,19,26,.55)");
+    vitre.addColorStop(cote ? 0 : 1, "rgba(10,12,17,.92)");
+    ctx.fillStyle = vitre;
+    ctx.fillRect(x, 0, vantail, h);
+
+    // le montant métallique sur l'arête qui avance, et son joint noir
+    const bord = cote ? x : vantail - 9;
+    const metal = ctx.createLinearGradient(bord, 0, bord + 9, 0);
+    metal.addColorStop(cote ? 1 : 0, "#79828f");
+    metal.addColorStop(cote ? 0 : 1, "#333a46");
+    ctx.fillStyle = metal;
+    ctx.fillRect(bord, 0, 9, h);
+    ctx.fillStyle = "#07090c";
+    ctx.fillRect(cote ? bord : bord + 7, 0, 2, h);
+
+    // le reflet qui court le long du montant
+    ctx.fillStyle = "rgba(255,255,255,.22)";
+    ctx.fillRect(cote ? bord + 6 : bord + 1, 0, 1.5, h);
+  }
   ctx.restore();
 }
 
