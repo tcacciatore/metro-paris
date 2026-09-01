@@ -30,10 +30,6 @@ const MODES = {
   /* L'exploration : tout le réseau. Seul mode qui ne demande pas de choisir une ligne. */
   metro: { nom: "Exploration", questions: 20, ...REGLAGE, formes: RESEAU },
 
-  /* La carrière : un service en trois actes, et l'avancement au bout. Servie par
-     carriere.js. C'est le seul mode qui garde une mémoire d'une soirée à l'autre. */
-  carriere: { nom: "Carrière", questions: 0, ...REGLAGE, carriere: true },
-
   /* On choisit sa ligne avant de commencer, et la manche entière s'y tient. Les formes
      retenues sont celles qui portaient déjà sur une ligne — situer une station, la
      reconnaître, dire ce qui suit, repérer l'intruse, citer les arrondissements
@@ -512,21 +508,12 @@ function showRecord() {
   recordLine.textContent = best ? `🎉 ${best.toLocaleString("fr-FR")}` : "";
   recordLine.hidden = !best;
 
-  // sous le bouton Jouer : ce qui situe la partie à venir. En conquête, c'est l'état du
-  // territoire — la seule chose qui donne envie de rouvrir le jeu demain.
   const surLigne = MODES[Game.mode].choixLigne && ligneFixe !== null;
-  const enCarriere = MODES[Game.mode].carriere && window.Carriere;
   if (surLigne) {
     const bouts = lineEnds(ligneFixe);
     boutsLine.textContent = `${bouts.from} ↔ ${bouts.to}`;
-  } else if (enCarriere) {
-    const p = Carriere.poste();
-    boutsLine.textContent = `${p.grade.tete} ${p.grade.nom} · ${p.surLigne} / ${
-      p.totalLigne} stations de la ligne ${lineName(p.ligne)}${
-      p.lignes ? ` · ${p.lignes} ligne${p.lignes > 1 ? "s" : ""} acquise${
-        p.lignes > 1 ? "s" : ""}` : ""}`;
   }
-  boutsLine.hidden = !(surLigne || enCarriere);
+  boutsLine.hidden = !surLigne;
 }
 
 /* Le mode se choisit avant la partie et se retient d'une visite à l'autre. */
@@ -1604,7 +1591,6 @@ function nearest(px, py, pool) {
 
 Game.click = (px, py) => {
   if (window.Voyage && Voyage.actif) return;       // le voyage se joue aux boutons
-  if (window.Carriere && Carriere.actif) return Carriere.click(px, py);
   const q = Game.question;
   if (!q || reveal) return;
   if (performance.now() - started < 250) return;   // garde contre le double clic
@@ -1823,7 +1809,6 @@ const format = d => d < 1000 ? `${Math.round(d / 10) * 10} m`
 
 Game.draw = ctx => {
   if (window.Voyage && Voyage.actif) return Voyage.draw(ctx);
-  if (window.Carriere && Carriere.actif) return Carriere.draw(ctx);
   const q = Game.question;
   if (!q) return;
   if (reveal && !reveal.born) reveal.born = performance.now();
@@ -2264,9 +2249,8 @@ function trainIn(after) {
 }
 
 function start() {
-  // le voyage et la conquête sont des jeux à part entière : ils ont leur propre départ
+  // le voyage est un jeu à part entière : il a son propre départ
   if (MODES[Game.mode].voyage) return Voyage.start();
-  if (MODES[Game.mode].carriere) return Carriere.start();
   document.body.classList.add("explored");
   wear("nuit");                                    // la partie se joue de nuit
   Game.playing = true;
@@ -2358,7 +2342,6 @@ function finish() {
   const rate = MODES[Game.mode].voyage
     ? Math.min(1, serie / LIGNE_ENTIERE)
     : done.length ? done.reduce((s, h) => s + success(h), 0) / done.length : 0;
-  const service = window.Carriere && Carriere.bilan;
   const grade = GRADES.find(g => rate >= g.min) || GRADES[GRADES.length - 1];
   if (window.Son) Son.fin(rate);
 
@@ -2390,19 +2373,12 @@ function finish() {
     <h2>${Game.score.toLocaleString("fr-FR")}</h2>
     <p class="sub">${MODES[Game.mode].voyage
       ? `${serie} station${serie > 1 ? "s" : ""} d'affilée`
-      : service
-      ? (service.promu ? "promotion" : service.prises.length
-          ? `${service.prises.length} station${service.prises.length > 1 ? "s" : ""} de plus`
-          : "aucun avancement")
       : `${Math.round(rate * 100)} % de réussite`} · ${
       record ? "nouveau record" : `record : ${best ? best.toLocaleString("fr-FR") : "—"}`}</p>
     <dl>
       ${shots.length ? `<dt>stations visées</dt><dd>${shots.length}</dd>
       <dt>écart moyen</dt><dd>${avg !== null ? format(avg) : "—"}</dd>` : ""}
       ${zones.length ? `<dt>stations d'arrondissement</dt><dd>${spotted} / ${wanted}</dd>` : ""}
-      ${service ? `<dt>note de service</dt><dd>${service.note} / 100</dd>
-        <dt>grade</dt><dd>${service.apres}</dd>
-        <dt>périmètre</dt><dd>${Carriere.poste().stations} / ${net.stations.length}</dd>` : ""}
       ${rames.length ? `<dt>stations desservies</dt><dd>${rames.length}</dd>
         <dt>distance parcourue</dt><dd>${format(Voyage.parcouru)}</dd>
         <dt>plus longue série</dt><dd>${serie}</dd>` : ""}
